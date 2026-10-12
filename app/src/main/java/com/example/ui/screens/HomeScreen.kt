@@ -208,7 +208,8 @@ fun HomeScreen(
                     }
                     DropdownMenu(
                         expanded = showCollegeDropdown,
-                        onDismissRequest = { showCollegeDropdown = false }
+                        onDismissRequest = { showCollegeDropdown = false },
+                        properties = androidx.compose.ui.window.PopupProperties(focusable = true)
                     ) {
                         CollegeDirectory.ALL_COLLEGES.forEach { col ->
                             DropdownMenuItem(
@@ -227,8 +228,8 @@ fun HomeScreen(
                                     }
                                 },
                                 onClick = {
-                                    selectedCollege = col
                                     showCollegeDropdown = false
+                                    selectedCollege = col
                                 }
                             )
                         }
@@ -286,21 +287,22 @@ fun HomeScreen(
                     }
                     DropdownMenu(
                         expanded = showTechDropdown,
-                        onDismissRequest = { showTechDropdown = false }
+                        onDismissRequest = { showTechDropdown = false },
+                        properties = androidx.compose.ui.window.PopupProperties(focusable = true)
                     ) {
                         DropdownMenuItem(
                             text = { Text("All Departments", fontSize = 13.sp, fontWeight = if (selectedTechnology == null) FontWeight.Bold else FontWeight.Normal) },
                             onClick = {
-                                selectedTechnology = null
                                 showTechDropdown = false
+                                selectedTechnology = null
                             }
                         )
                         activeTechnologies.forEach { tech ->
                             DropdownMenuItem(
                                 text = { Text(tech.displayName, fontSize = 13.sp, fontWeight = if (selectedTechnology == tech) FontWeight.Bold else FontWeight.Normal) },
                                 onClick = {
-                                    selectedTechnology = tech
                                     showTechDropdown = false
+                                    selectedTechnology = tech
                                 }
                             )
                         }
@@ -358,21 +360,22 @@ fun HomeScreen(
                     }
                     DropdownMenu(
                         expanded = showSemDropdown,
-                        onDismissRequest = { showSemDropdown = false }
+                        onDismissRequest = { showSemDropdown = false },
+                        properties = androidx.compose.ui.window.PopupProperties(focusable = true)
                     ) {
                         DropdownMenuItem(
                             text = { Text("All Semesters", fontSize = 13.sp, fontWeight = if (selectedSemester == null) FontWeight.Bold else FontWeight.Normal) },
                             onClick = {
-                                selectedSemester = null
                                 showSemDropdown = false
+                                selectedSemester = null
                             }
                         )
                         Semester.entries.forEach { sem ->
                             DropdownMenuItem(
                                 text = { Text(sem.displayName, fontSize = 13.sp, fontWeight = if (selectedSemester == sem) FontWeight.Bold else FontWeight.Normal) },
                                 onClick = {
-                                    selectedSemester = sem
                                     showSemDropdown = false
+                                    selectedSemester = sem
                                 }
                             )
                         }
@@ -711,7 +714,7 @@ fun HomeScreen(
                     )
                 }
 
-                // 1st to 8th Semester Chips
+                // 1st to 7th Semester Chips
                 items(Semester.entries) { sem ->
                     LiquidGlassChip(
                         text = sem.displayName,

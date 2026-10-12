@@ -1,7 +1,11 @@
 package com.example.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,7 +20,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
@@ -873,163 +879,230 @@ fun FloatingBottomNavBar(
     inboxUnreadCount: Int = 3,
     modifier: Modifier = Modifier
 ) {
+    // Exactly the 5 menu options requested by the user: Home, Search, Sell, Inbox, Profile
+    val pillTabs = remember {
+        listOf(
+            Triple(BottomNavTab.HOME, Icons.Outlined.Home, "Home"),
+            Triple(BottomNavTab.SEARCH, Icons.Outlined.Search, "Search"),
+            Triple(BottomNavTab.SELL, Icons.Default.Add, "Sell"),
+            Triple(BottomNavTab.INBOX, Icons.Outlined.ChatBubbleOutline, "Inbox"),
+            Triple(BottomNavTab.PROFILE, Icons.Outlined.Person, "Profile")
+        )
+    }
+
+    val activePillIndex = when (currentTab) {
+        BottomNavTab.HOME -> 0
+        BottomNavTab.SEARCH -> 1
+        BottomNavTab.SELL -> 2
+        BottomNavTab.INBOX -> 3
+        BottomNavTab.PROFILE -> 4
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
+        // The Unified Liquid Glass Capsule Dock with smooth sliding liquid indicator
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp)
-                .liquidGlass(
-                    shape = RoundedCornerShape(36.dp),
-                    backgroundColor = Color.White.copy(alpha = 0.92f),
-                    borderBrush = GlassRimBrush,
-                    borderWidth = 1.5.dp,
-                    elevation = 12.dp,
-                    shadowColor = DeepShadowColor,
-                    innerShadowColor = Color(0x15000000),
-                    innerHighlightColor = Color.White,
-                    showTopSheen = true
+                .height(68.dp)
+                .shadow(
+                    elevation = 14.dp,
+                    shape = RoundedCornerShape(34.dp),
+                    ambientColor = Color(0x35000000),
+                    spotColor = Color(0x35000000)
+                )
+                .clip(RoundedCornerShape(34.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF475569).copy(alpha = 0.60f),
+                            Color(0xFF1E293B).copy(alpha = 0.74f)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.3.dp,
+                    brush = Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.80f),
+                            Color.White.copy(alpha = 0.25f),
+                            Color.White.copy(alpha = 0.50f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(34.dp)
                 )
         ) {
-            Row(
+            // Specular top highlight for the main container
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .height(6.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 2.5f.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.35f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 5.dp, vertical = 5.dp)
             ) {
-                // Home Tab
-                NavBarItem(
-                    icon = Icons.Outlined.Home,
-                    label = "Home",
-                    isSelected = currentTab == BottomNavTab.HOME,
-                    onClick = { onTabSelected(BottomNavTab.HOME) },
-                    testTag = "nav_home"
-                )
+                val totalWidth = maxWidth
+                val tabWidth = totalWidth / 5
+                val capsuleHeight = maxHeight
 
-                // Search Tab
-                NavBarItem(
-                    icon = Icons.Outlined.Search,
-                    label = "Search",
-                    isSelected = currentTab == BottomNavTab.SEARCH,
-                    onClick = { onTabSelected(BottomNavTab.SEARCH) },
-                    testTag = "nav_search"
-                )
-
-                // Sell Tab (Elevated Liquid Glass Center Dial)
-                LiquidGlassDialButton(
-                    onClick = { onTabSelected(BottomNavTab.SELL) },
-                    icon = Icons.Default.Add,
-                    size = 56.dp,
-                    testTag = "nav_sell"
-                )
-
-                // Inbox Tab
-                NavBarItem(
-                    icon = Icons.Outlined.ChatBubbleOutline,
-                    label = "Inbox",
-                    isSelected = currentTab == BottomNavTab.INBOX,
-                    badgeCount = inboxUnreadCount,
-                    onClick = { onTabSelected(BottomNavTab.INBOX) },
-                    testTag = "nav_inbox"
-                )
-
-                // Profile Tab
-                NavBarItem(
-                    icon = Icons.Outlined.Person,
-                    label = "Profile",
-                    isSelected = currentTab == BottomNavTab.PROFILE,
-                    onClick = { onTabSelected(BottomNavTab.PROFILE) },
-                    testTag = "nav_profile"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NavBarItem(
-    icon: ImageVector,
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    badgeCount: Int = 0,
-    testTag: String
-) {
-    val animColor by animateColorAsState(
-        targetValue = if (isSelected) PrimaryPurple else TextMuted,
-        label = "navColor"
-    )
-
-    Box(
-        modifier = Modifier
-            .then(
-                if (isSelected) {
-                    Modifier.liquidGlass(
-                        shape = RoundedCornerShape(20.dp),
-                        backgroundColor = PrimaryPurpleLight.copy(alpha = 0.85f),
-                        borderBrush = GlassRimBrush,
-                        borderWidth = 1.dp,
-                        elevation = 2.dp,
-                        shadowColor = PrimaryPurpleGlow,
-                        innerShadowColor = PrimaryPurpleInnerShadow.copy(alpha = 0.15f),
-                        innerHighlightColor = Color.White,
-                        showTopSheen = false
+                // Sliding Liquid Glass Active Indicator Capsule
+                if (activePillIndex in 0..4) {
+                    val targetX = tabWidth * activePillIndex
+                    val animatedX by animateDpAsState(
+                        targetValue = targetX,
+                        animationSpec = spring(
+                            dampingRatio = 0.75f,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "liquid_capsule_x"
                     )
-                } else Modifier
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(color = PrimaryPurple.copy(alpha = 0.2f))
-            ) { onClick() }
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-            .testTag(testTag),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = animColor,
-                    modifier = Modifier.size(22.dp)
-                )
 
-                if (badgeCount > 0) {
                     Box(
                         modifier = Modifier
-                            .offset(x = 12.dp, y = (-4).dp)
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEF4444)),
-                        contentAlignment = Alignment.Center
+                            .offset(x = animatedX)
+                            .width(tabWidth)
+                            .height(capsuleHeight)
+                            .shadow(
+                                elevation = 6.dp,
+                                shape = RoundedCornerShape(26.dp),
+                                ambientColor = Color(0x30FFFFFF),
+                                spotColor = Color(0x30FFFFFF)
+                            )
+                            .clip(RoundedCornerShape(26.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.40f),
+                                        Color.White.copy(alpha = 0.22f)
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 1.2.dp,
+                                brush = Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.90f),
+                                        Color.White.copy(alpha = 0.40f)
+                                    )
+                                ),
+                                shape = RoundedCornerShape(26.dp)
+                            )
                     ) {
-                        Text(
-                            text = if (badgeCount > 9) "9+" else badgeCount.toString(),
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
+                        // Specular top sheen on active pill
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.82f)
+                                .height(5.dp)
+                                .align(Alignment.TopCenter)
+                                .padding(top = 2.dp)
+                                .clip(RoundedCornerShape(2.5f.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.White.copy(alpha = 0.60f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
                         )
                     }
                 }
+
+                // Clickable Tab Buttons (Home, Search, Sell, Inbox, Profile)
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    pillTabs.forEach { (tab, icon, label) ->
+                        val isSelected = currentTab == tab
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+                        val scale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.92f else 1f,
+                            animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
+                            label = "tab_scale"
+                        )
+
+                        val animColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.White else Color.White.copy(alpha = 0.72f),
+                            animationSpec = tween(200),
+                            label = "tab_color"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .scale(scale)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) {
+                                    onTabSelected(tab)
+                                }
+                                .testTag("nav_${tab.name.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = label,
+                                        tint = animColor,
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                    if (tab == BottomNavTab.INBOX && inboxUnreadCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .offset(x = 12.dp, y = (-4).dp)
+                                                .size(15.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFEF4444)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = if (inboxUnreadCount > 9) "9+" else "$inboxUnreadCount",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = label,
+                                    color = animColor,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
             }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Text(
-                text = label,
-                color = animColor,
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-            )
         }
     }
 }
@@ -1156,6 +1229,7 @@ fun <T> GlassNeumorphicDropdownField(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            properties = androidx.compose.ui.window.PopupProperties(focusable = true),
             modifier = Modifier
                 .fillMaxWidth(0.90f)
                 .background(Color.White.copy(alpha = 0.98f))
@@ -1211,8 +1285,8 @@ fun <T> GlassNeumorphicDropdownField(
                         }
                     },
                     onClick = {
-                        onSelect(option)
                         expanded = false
+                        onSelect(option)
                     },
                     modifier = Modifier
                         .then(

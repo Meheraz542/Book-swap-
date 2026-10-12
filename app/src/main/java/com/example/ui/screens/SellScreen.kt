@@ -43,6 +43,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.automirrored.outlined.Login
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.ui.text.style.TextAlign
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.MarketplaceRepository
@@ -56,9 +59,55 @@ import kotlinx.coroutines.launch
 @Composable
 fun SellScreen(
     onPublishSuccess: (BookSet) -> Unit,
+    onRequireLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val currentUser by MarketplaceRepository.currentUser.collectAsState()
+    val isLoggedIn by MarketplaceRepository.isLoggedIn.collectAsState()
+
+    if (!isLoggedIn) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = PrimaryPurpleLight,
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.Lock, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(32.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text("Sign in to list books", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Please sign in to your student account to list your semester book set for other students.", fontSize = 13.sp, color = TextSecondary, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(18.dp))
+                    GlassButton(
+                        text = "Sign In / Register",
+                        onClick = onRequireLogin,
+                        icon = Icons.AutoMirrored.Outlined.Login,
+                        modifier = Modifier.fillMaxWidth(),
+                        testTag = "sell_btn_login_prompt"
+                    )
+                }
+            }
+        }
+        return
+    }
 
     var setName by remember { mutableStateOf("") }
     var subject by remember { mutableStateOf("") }
@@ -104,14 +153,9 @@ fun SellScreen(
         }
     }
 
-    // Included Books list
+    // Included Books list (Real clean list)
     var includedBooks by remember {
-        mutableStateOf(
-            listOf(
-                IncludedBook("1", "", "Textbook 1", "Core Subject", "Author", "Latest", "CODE-101"),
-                IncludedBook("2", "", "Textbook 2", "Secondary Subject", "Author", "Latest", "CODE-102")
-            )
-        )
+        mutableStateOf(emptyList<IncludedBook>())
     }
 
     var showAddBookDialog by remember { mutableStateOf(false) }
@@ -370,6 +414,36 @@ fun SellScreen(
                                 textColor = PrimaryPurple,
                                 testTag = "btn_add_book"
                             )
+                        }
+                    }
+                }
+
+                if (includedBooks.isEmpty()) {
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Add books to this set",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Tap the 'Add Book' button above to specify book titles and subjects.",
+                                    fontSize = 12.sp,
+                                    color = TextMuted
+                                )
+                            }
                         }
                     }
                 }

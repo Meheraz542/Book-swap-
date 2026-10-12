@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">BookSet</string>
+    <string name="default_web_client_id" translatable="false">986504877917-f5pncb9l1ct19ami7v66h8rbt51js93k.apps.googleusercontent.com</string>
 </resources>

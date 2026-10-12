@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered student profile on BookSet marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Student full name" },
+        "email": { "type": "string", "description": "Student email address" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "college": { "type": "string", "description": "Institute name (FPI / FCI)" },
+        "technology": { "type": "string", "description": "Department / Technology ID" },
+        "currentSemester": { "type": "string", "description": "Current semester (1 to 7)" },
+        "role": { "type": "string", "description": "USER or ADMIN" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "name", "email", "college", "technology", "currentSemester"]
+    },
+    "BookSet": {
+      "title": "BookSet",
+      "description": "Used semester book set bundle listing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Listing unique ID" },
+        "sellerId": { "type": "string", "description": "Seller Firebase Auth UID" },
+        "sellerName": { "type": "string", "description": "Seller display name" },
+        "sellerCollege": { "type": "string", "description": "Seller institute" },
+        "sellerTech": { "type": "string", "description": "Seller technology" },
+        "sellerSem": { "type": "string", "description": "Seller semester" },
+        "sellerPhone": { "type": "string", "description": "Seller contact number" },
+        "sellerEmail": { "type": "string", "description": "Seller email" },
+        "title": { "type": "string", "description": "Bundle listing title" },
+        "subject": { "type": "string", "description": "Main department/subject" },
+        "technology": { "type": "string", "description": "Technology ID (civil, cse, etc.)" },
+        "semester": { "type": "string", "description": "Semester ID (1 to 7)" },
+        "college": { "type": "string", "description": "College name" },
+        "totalPrice": { "type": "number", "description": "Price in BDT" },
+        "overallCondition": { "type": "string", "description": "Like New, Good, Used, Heavily Used" },
+        "description": { "type": "string", "description": "Description of bundle" },
+        "status": { "type": "string", "description": "AVAILABLE, SOLD, or REMOVED" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["sellerId", "title", "technology", "semester", "college", "totalPrice", "status"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Buyer-seller chat conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Conversation ID" },
+        "bookSetId": { "type": "string", "description": "Referenced BookSet ID" },
+        "bookSetTitle": { "type": "string", "description": "BookSet Title" },
+        "buyerId": { "type": "string", "description": "Buyer UID" },
+        "buyerName": { "type": "string", "description": "Buyer Name" },
+        "sellerId": { "type": "string", "description": "Seller UID" },
+        "sellerName": { "type": "string", "description": "Seller Name" },
+        "lastMessage": { "type": "string", "description": "Latest message text" },
+        "lastMessageSenderId": { "type": "string", "description": "Sender of last message" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last updated timestamp" }
+      },
+      "required": ["id", "bookSetId", "buyerId", "sellerId"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID" },
+        "conversationId": { "type": "string", "description": "Parent conversation ID" },
+        "senderId": { "type": "string", "description": "Sender UID" },
+        "senderName": { "type": "string", "description": "Sender display name" },
+        "text": { "type": "string", "description": "Message body" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Sent timestamp" },
+        "isDealOffer": { "type": "boolean", "description": "Is this a Mega Deal offer" },
+        "dealOfferedPrice": { "type": "number", "description": "Offered deal price" },
+        "dealStatus": { "type": "string", "description": "PENDING, ACCEPTED, REJECTED" }
+      },
+      "required": ["id", "conversationId", "senderId", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Student user profiles indexed by Auth UID"
+    },
+    "/bookSets/{bookSetId}": {
+      "schema": { "$ref": "#/entities/BookSet" },
+      "description": "Complete semester book set marketplace listings"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Buyer and seller chat negotiation channels"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Realtime chat messages in a conversation"
+    }
+  }
+}

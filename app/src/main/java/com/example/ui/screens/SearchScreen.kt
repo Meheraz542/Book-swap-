@@ -335,7 +335,7 @@ fun SearchScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // 3. Semester Dropdown (1st to 8th Semester)
+                    // 3. Semester Dropdown (1st to 7th Semester)
                     GlassNeumorphicDropdownField(
                         label = "Semester",
                         selectedValue = selectedSemester,

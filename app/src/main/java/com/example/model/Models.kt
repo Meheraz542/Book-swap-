@@ -23,8 +23,7 @@ enum class Semester(val id: String, val displayName: String, val shortName: Stri
     SEM_4("4", "4th Semester", "4th"),
     SEM_5("5", "5th Semester", "5th"),
     SEM_6("6", "6th Semester", "6th"),
-    SEM_7("7", "7th Semester", "7th"),
-    SEM_8("8", "8th Semester", "8th");
+    SEM_7("7", "7th Semester", "7th");
 
     companion object {
         fun fromId(id: String): Semester = entries.find { it.id == id } ?: SEM_1
@@ -152,4 +151,15 @@ data class AppNotification(
     val isRead: Boolean = false,
     val relatedSetId: String? = null,
     val relatedDealId: String? = null
+)
+
+data class AppTrafficStats(
+    val dailyActiveUsers: Int = 184,
+    val totalVisitsToday: Int = 1420,
+    val bookChecksToday: Int = 680,
+    val chatInquiriesToday: Int = 92,
+    val fpiTrafficShare: Int = 68,
+    val fciTrafficShare: Int = 32,
+    val peakHour: String = "10:30 AM - 1:30 PM",
+    val newSignupsToday: Int = 14
 )

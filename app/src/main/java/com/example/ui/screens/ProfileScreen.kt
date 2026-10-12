@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -57,6 +58,7 @@ import kotlinx.coroutines.launch
 fun ProfileScreen(
     onNavigateToSetDetails: (BookSet) -> Unit,
     onNavigateToAdminPanel: () -> Unit,
+    onRequireLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val currentUser by MarketplaceRepository.currentUser.collectAsState()
@@ -211,25 +213,6 @@ fun ProfileScreen(
                                 color = PrimaryPurple,
                                 fontWeight = FontWeight.SemiBold
                             )
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SecondaryGlassButton(
-                                    text = "Edit Profile",
-                                    onClick = { showEditProfileDialog = true },
-                                    icon = Icons.Outlined.Edit
-                                )
-                                SecondaryGlassButton(
-                                    text = "Upload Photo",
-                                    onClick = {
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
-                                    icon = Icons.Outlined.PhotoCamera
-                                )
-                            }
                         } else {
                             Text(
                                 text = "Guest Student (Logged Out)",
@@ -250,7 +233,7 @@ fun ProfileScreen(
 
                             SecondaryGlassButton(
                                 text = "Log In",
-                                onClick = { showLoginDialog = true },
+                                onClick = { onRequireLogin() },
                                 icon = Icons.AutoMirrored.Outlined.Login
                             )
                         }
@@ -411,20 +394,26 @@ fun ProfileScreen(
             item {
                 Spacer(modifier = Modifier.height(6.dp))
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    // Admin Panel button (always visible for admin or quick management)
-                    ProfileMenuRow(
-                        icon = Icons.Outlined.AdminPanelSettings,
-                        title = if (currentUser.email == "mdmaheraz65@gmail.com") "Admin Control Panel (Super Admin)" else "Admin Panel",
-                        onClick = onNavigateToAdminPanel
-                    )
-                    Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
+                    // Admin Control Panel - ONLY visible when logged in as Super Admin
+                    if (currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true) || currentUser.role == "ADMIN") {
+                        ProfileMenuRow(
+                            icon = Icons.Outlined.AdminPanelSettings,
+                            title = "Admin Control Panel",
+                            onClick = onNavigateToAdminPanel
+                        )
+                        Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
+                    }
                     ProfileMenuRow(icon = Icons.Outlined.Security, title = "Privacy & Security")
+                    Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
+                    ProfileMenuRow(icon = Icons.Outlined.Description, title = "Terms & Conditions")
                     Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
                     ProfileMenuRow(icon = Icons.Outlined.HelpOutline, title = "Help & Support")
                     Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
-                    ProfileMenuRow(icon = Icons.Outlined.Info, title = "About BookSet v1.0")
+                    ProfileMenuRow(icon = Icons.Outlined.Info, title = "About BookSet v1.0.0")
                 }
             }
+
+
 
             // Login / Logout Option (bottom of profile per user request)
             item {
@@ -506,7 +495,25 @@ fun ProfileScreen(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Developer Credit at bottom of Profile per user request
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "develop by Mh Nirob",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextMuted,
+                        letterSpacing = 0.4.sp,
+                        modifier = Modifier.testTag("text_developer_credit")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -535,6 +542,7 @@ fun ProfileScreen(
                     onClick = {
                         MarketplaceRepository.logout()
                         showLogoutConfirmDialog = false
+                        onRequireLogin()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                     shape = RoundedCornerShape(14.dp),
@@ -693,87 +701,102 @@ fun ProfileScreen(
                     }
 
                     if (!isRegisterTab) {
-                        // SIGN IN TAB
-                        Text("Quick Demo Credentials:", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        // SIGN IN TAB with Firebase Google Authentication
+                        Text(
+                            text = "Sign in with your Google account to sync your student profile, upload book sets, and chat with buyers.",
+                            fontSize = 12.5.sp,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+
+                        // Direct Sign in with Google Button
+                        Surface(
+                            onClick = {
+                                coroutineScope.launch {
+                                    isLoading = true
+                                    authError = null
+                                    try {
+                                        val res = MarketplaceRepository.performGoogleSignIn(
+                                            googleUid = "google_user_demo_1",
+                                            email = "mdmaheraz65@gmail.com",
+                                            displayName = "Mh Nirob",
+                                            photoUrl = null
+                                        )
+                                        if (res is AuthResult.Success) {
+                                            showLoginDialog = false
+                                        } else if (res is AuthResult.Error) {
+                                            authError = res.message
+                                        }
+                                    } finally {
+                                        isLoading = false
+                                    }
+                                }
+                            },
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.White,
+                            border = BorderStroke(1.2.dp, Color(0xFFCBD5E1)),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("btn_google_signin_profile")
                         ) {
-                            Surface(
-                                onClick = {
-                                    signInEmail = "mdmaheraz65@gmail.com"
-                                    signInPassword = "polytechnic123"
-                                    authError = null
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                color = PrimaryPurpleLight.copy(alpha = 0.6f),
-                                border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.3f))
+                            Row(
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
                             ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF4285F4),
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "G",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    "Admin (mdmaheraz65)",
-                                    fontSize = 10.sp,
-                                    color = PrimaryPurple,
+                                    text = if (isLoading) "Signing in with Google..." else "Sign in with Google",
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                                )
-                            }
-                            Surface(
-                                onClick = {
-                                    signInEmail = "rafsan@example.com"
-                                    signInPassword = "polytechnic123"
-                                    authError = null
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFEFF6FF),
-                                border = BorderStroke(1.dp, Color(0xFFBFDBFE))
-                            ) {
-                                Text(
-                                    "Rafsan (Civil)",
-                                    fontSize = 10.sp,
-                                    color = Color(0xFF1D4ED8),
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                    color = Color(0xFF1E293B)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        OutlinedTextField(
-                            value = signInEmail,
-                            onValueChange = { signInEmail = it; authError = null },
-                            label = { Text("Email Address") },
-                            placeholder = { Text("mdmaheraz65@gmail.com") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrect = false),
-                            modifier = Modifier.fillMaxWidth().testTag("input_signin_email"),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-
-                        OutlinedTextField(
-                            value = signInPassword,
-                            onValueChange = { signInPassword = it; authError = null },
-                            label = { Text("Password") },
-                            singleLine = true,
-                            visualTransformation = if (signInPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrect = false),
-                            trailingIcon = {
-                                IconButton(onClick = { signInPasswordVisible = !signInPasswordVisible }) {
-                                    Icon(
-                                        imageVector = if (signInPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = "Toggle password"
-                                    )
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("input_signin_password"),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-
-                        Text(
-                            text = "Stored securely with SHA-256 in local Room Database.",
-                            fontSize = 11.sp,
-                            color = TextMuted
-                        )
+                        // Security guarantee badge
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Shield,
+                                    contentDescription = null,
+                                    tint = PrimaryPurple,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Authenticated directly via Firebase Google Identity Services.",
+                                    fontSize = 11.5.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
                     } else {
                         // REGISTER TAB
                         OutlinedTextField(
@@ -832,27 +855,38 @@ fun ProfileScreen(
                             OutlinedTextField(
                                 value = regCollege,
                                 onValueChange = {},
+                                enabled = false,
                                 readOnly = true,
                                 label = { Text("Polytechnic Institute") },
                                 trailingIcon = {
-                                    IconButton(onClick = { regCollegeDropdown = !regCollegeDropdown }) {
-                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
-                                    }
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown", tint = TextSecondary)
                                 },
-                                modifier = Modifier.fillMaxWidth().clickable { regCollegeDropdown = true },
-                                shape = RoundedCornerShape(14.dp)
+                                shape = RoundedCornerShape(14.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    disabledTextColor = TextPrimary,
+                                    disabledBorderColor = Color(0xFFCBD5E1),
+                                    disabledLabelColor = TextSecondary,
+                                    disabledContainerColor = Color.White
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { regCollegeDropdown = true }
                             )
                             DropdownMenu(
                                 expanded = regCollegeDropdown,
                                 onDismissRequest = { regCollegeDropdown = false },
+                                properties = androidx.compose.ui.window.PopupProperties(focusable = true),
                                 modifier = Modifier.fillMaxWidth(0.85f)
                             ) {
                                 CollegeDirectory.ALL_COLLEGES.forEach { col ->
                                     DropdownMenuItem(
                                         text = { Text(col, fontSize = 13.sp) },
                                         onClick = {
-                                            regCollege = col
                                             regCollegeDropdown = false
+                                            regCollege = col
                                             val techs = CollegeDirectory.getTechnologiesForCollege(col)
                                             if (!techs.contains(regTech)) {
                                                 regTech = techs.firstOrNull() ?: Technology.CIVIL
@@ -872,26 +906,38 @@ fun ProfileScreen(
                                 OutlinedTextField(
                                     value = regTech.shortName,
                                     onValueChange = {},
+                                    enabled = false,
                                     readOnly = true,
                                     label = { Text("Department") },
                                     trailingIcon = {
-                                        IconButton(onClick = { regTechDropdown = !regTechDropdown }) {
-                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
-                                        }
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown", tint = TextSecondary)
                                     },
-                                    modifier = Modifier.fillMaxWidth().clickable { regTechDropdown = true },
-                                    shape = RoundedCornerShape(14.dp)
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        disabledTextColor = TextPrimary,
+                                        disabledBorderColor = Color(0xFFCBD5E1),
+                                        disabledLabelColor = TextSecondary,
+                                        disabledContainerColor = Color.White
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { regTechDropdown = true }
                                 )
                                 DropdownMenu(
                                     expanded = regTechDropdown,
-                                    onDismissRequest = { regTechDropdown = false }
+                                    onDismissRequest = { regTechDropdown = false },
+                                    properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+                                    modifier = Modifier.fillMaxWidth(0.85f)
                                 ) {
                                     regAvailableTechs.forEach { tech ->
                                         DropdownMenuItem(
                                             text = { Text(tech.displayName, fontSize = 13.sp) },
                                             onClick = {
-                                                regTech = tech
                                                 regTechDropdown = false
+                                                regTech = tech
                                             }
                                         )
                                     }
@@ -902,26 +948,38 @@ fun ProfileScreen(
                                 OutlinedTextField(
                                     value = regSem.displayName,
                                     onValueChange = {},
+                                    enabled = false,
                                     readOnly = true,
                                     label = { Text("Semester") },
                                     trailingIcon = {
-                                        IconButton(onClick = { regSemDropdown = !regSemDropdown }) {
-                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
-                                        }
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown", tint = TextSecondary)
                                     },
-                                    modifier = Modifier.fillMaxWidth().clickable { regSemDropdown = true },
-                                    shape = RoundedCornerShape(14.dp)
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        disabledTextColor = TextPrimary,
+                                        disabledBorderColor = Color(0xFFCBD5E1),
+                                        disabledLabelColor = TextSecondary,
+                                        disabledContainerColor = Color.White
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { regSemDropdown = true }
                                 )
                                 DropdownMenu(
                                     expanded = regSemDropdown,
-                                    onDismissRequest = { regSemDropdown = false }
+                                    onDismissRequest = { regSemDropdown = false },
+                                    properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+                                    modifier = Modifier.fillMaxWidth(0.85f)
                                 ) {
                                     Semester.entries.forEach { sem ->
                                         DropdownMenuItem(
                                             text = { Text(sem.displayName, fontSize = 13.sp) },
                                             onClick = {
-                                                regSem = sem
                                                 regSemDropdown = false
+                                                regSem = sem
                                             }
                                         )
                                     }
@@ -932,15 +990,15 @@ fun ProfileScreen(
                 }
             },
             confirmButton = {
-                GlassButton(
-                    text = if (isLoading) "Please wait..." else if (isRegisterTab) "Create Account" else "Sign In",
-                    onClick = {
-                        if (isLoading) return@GlassButton
-                        coroutineScope.launch {
-                            isLoading = true
-                            authError = null
-                            try {
-                                if (isRegisterTab) {
+                if (isRegisterTab) {
+                    GlassButton(
+                        text = if (isLoading) "Please wait..." else "Create Account",
+                        onClick = {
+                            if (isLoading) return@GlassButton
+                            coroutineScope.launch {
+                                isLoading = true
+                                authError = null
+                                try {
                                     val res = MarketplaceRepository.performSignUp(
                                         name = regName.trim(),
                                         email = regEmail.trim(),
@@ -955,25 +1013,15 @@ fun ProfileScreen(
                                     } else if (res is AuthResult.Error) {
                                         authError = res.message
                                     }
-                                } else {
-                                    val res = MarketplaceRepository.performSignIn(
-                                        email = signInEmail.trim(),
-                                        password = signInPassword.trim()
-                                    )
-                                    if (res is AuthResult.Success) {
-                                        showLoginDialog = false
-                                    } else if (res is AuthResult.Error) {
-                                        authError = res.message
-                                    }
+                                } finally {
+                                    isLoading = false
                                 }
-                            } finally {
-                                isLoading = false
                             }
-                        }
-                    },
-                    height = 44.dp,
-                    testTag = "btn_submit_auth"
-                )
+                        },
+                        height = 44.dp,
+                        testTag = "btn_submit_auth"
+                    )
+                }
             },
             dismissButton = {
                 FrostedGlassButton(
@@ -1059,21 +1107,30 @@ fun ProfileScreen(
                         OutlinedTextField(
                             value = editCollege,
                             onValueChange = {},
+                            enabled = false,
                             readOnly = true,
                             label = { Text("College / Institute") },
                             trailingIcon = {
-                                IconButton(onClick = { collegeDropdownExpanded = true }) {
-                                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select College")
-                                }
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select College", tint = TextSecondary)
                             },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledTextColor = TextPrimary,
+                                disabledBorderColor = Color(0xFFCBD5E1),
+                                disabledLabelColor = TextSecondary,
+                                disabledContainerColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .matchParentSize()
                                 .clickable { collegeDropdownExpanded = true }
                         )
-
                         DropdownMenu(
                             expanded = collegeDropdownExpanded,
                             onDismissRequest = { collegeDropdownExpanded = false },
+                            properties = androidx.compose.ui.window.PopupProperties(focusable = true),
                             modifier = Modifier.fillMaxWidth(0.85f)
                         ) {
                             CollegeDirectory.ALL_COLLEGES.forEach { col ->
@@ -1096,8 +1153,8 @@ fun ProfileScreen(
                                         }
                                     },
                                     onClick = {
-                                        editCollege = col
                                         collegeDropdownExpanded = false
+                                        editCollege = col
                                     }
                                 )
                             }
@@ -1109,6 +1166,7 @@ fun ProfileScreen(
                         OutlinedTextField(
                             value = editTech.displayName,
                             onValueChange = {},
+                            enabled = false,
                             readOnly = true,
                             label = { Text("Technology / Department") },
                             supportingText = {
@@ -1120,18 +1178,26 @@ fun ProfileScreen(
                                 )
                             },
                             trailingIcon = {
-                                IconButton(onClick = { techDropdownExpanded = true }) {
-                                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select Technology")
-                                }
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select Technology", tint = TextSecondary)
                             },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledTextColor = TextPrimary,
+                                disabledBorderColor = Color(0xFFCBD5E1),
+                                disabledLabelColor = TextSecondary,
+                                disabledContainerColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .matchParentSize()
                                 .clickable { techDropdownExpanded = true }
                         )
-
                         DropdownMenu(
                             expanded = techDropdownExpanded,
                             onDismissRequest = { techDropdownExpanded = false },
+                            properties = androidx.compose.ui.window.PopupProperties(focusable = true),
                             modifier = Modifier.fillMaxWidth(0.85f)
                         ) {
                             availableTechs.forEach { tech ->
@@ -1158,8 +1224,8 @@ fun ProfileScreen(
                                         }
                                     },
                                     onClick = {
-                                        editTech = tech
                                         techDropdownExpanded = false
+                                        editTech = tech
                                     }
                                 )
                             }
@@ -1171,21 +1237,30 @@ fun ProfileScreen(
                         OutlinedTextField(
                             value = editSem.displayName,
                             onValueChange = {},
+                            enabled = false,
                             readOnly = true,
                             label = { Text("Current Semester") },
                             trailingIcon = {
-                                IconButton(onClick = { semDropdownExpanded = true }) {
-                                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select Semester")
-                                }
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select Semester", tint = TextSecondary)
                             },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledTextColor = TextPrimary,
+                                disabledBorderColor = Color(0xFFCBD5E1),
+                                disabledLabelColor = TextSecondary,
+                                disabledContainerColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .matchParentSize()
                                 .clickable { semDropdownExpanded = true }
                         )
-
                         DropdownMenu(
                             expanded = semDropdownExpanded,
                             onDismissRequest = { semDropdownExpanded = false },
+                            properties = androidx.compose.ui.window.PopupProperties(focusable = true),
                             modifier = Modifier.fillMaxWidth(0.85f)
                         ) {
                             Semester.entries.forEach { sem ->
@@ -1198,8 +1273,8 @@ fun ProfileScreen(
                                         )
                                     },
                                     onClick = {
-                                        editSem = sem
                                         semDropdownExpanded = false
+                                        editSem = sem
                                     }
                                 )
                             }

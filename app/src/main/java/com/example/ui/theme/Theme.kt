@@ -7,13 +7,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val LightColorScheme = lightColorScheme(
-    primary = PrimaryPurple,
+    primary = PrimaryBlue,
     onPrimary = Color.White,
-    primaryContainer = PrimaryPurpleLight,
-    onPrimaryContainer = PrimaryPurple,
-    secondary = AccentBlue,
+    primaryContainer = PrimaryBlueLight,
+    onPrimaryContainer = PrimaryBlue,
+    secondary = SecondaryCyan,
     onSecondary = Color.White,
-    tertiary = PrimaryPurpleEnd,
+    tertiary = PrimaryBlueEnd,
     background = BgCanvas,
     onBackground = TextPrimary,
     surface = Color.White,
@@ -35,4 +35,3 @@ fun MyApplicationTheme(
         content = content
     )
 }
-

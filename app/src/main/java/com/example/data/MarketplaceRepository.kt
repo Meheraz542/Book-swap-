@@ -4,6 +4,9 @@ import android.content.Context
 import com.example.R
 import com.example.data.auth.AuthManager
 import com.example.data.auth.AuthResult
+import com.example.data.auth.EmailOtpManager
+import com.example.data.auth.OtpResult
+import com.example.data.auth.PendingRegistration
 import com.example.data.local.AppDatabase
 import com.example.data.local.entities.*
 import com.example.model.*
@@ -21,25 +24,34 @@ object MarketplaceRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var database: AppDatabase? = null
     private var authManager: AuthManager? = null
+    private var emailOtpManager: EmailOtpManager? = null
 
-    // Current Logged in User (Default Rahim Ahmed, admin email mdmaheraz65@gmail.com)
-    private val _currentUser = MutableStateFlow(
-        UserProfile(
-            id = "user_rahim_1",
-            name = "Rahim Ahmed",
-            email = "mdmaheraz65@gmail.com",
-            phone = "01712-345678",
-            college = "Feni Computer Institute",
-            technology = Technology.CSE,
-            currentSemester = Semester.SEM_3,
-            profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
-            role = "ADMIN",
-            accountStatus = "ACTIVE"
-        )
+    // Real-time Gmail OTP State
+    private val _latestOtpCode = MutableStateFlow<String?>(null)
+    val latestOtpCode: StateFlow<String?> = _latestOtpCode.asStateFlow()
+
+    private val _pendingOtpEmail = MutableStateFlow<String?>(null)
+    val pendingOtpEmail: StateFlow<String?> = _pendingOtpEmail.asStateFlow()
+
+    // Default Super Admin profile for seamless testing & initial state
+    private val defaultAdminProfile = UserProfile(
+        id = "admin_master_1",
+        name = "Super Admin",
+        email = "mdmaheraz65@gmail.com",
+        phone = "01712-345678",
+        college = "Feni Computer Institute",
+        technology = Technology.CSE,
+        currentSemester = Semester.SEM_3,
+        profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+        role = "ADMIN",
+        accountStatus = "ACTIVE"
     )
+
+    // Current Logged in User
+    private val _currentUser = MutableStateFlow(defaultAdminProfile)
     val currentUser: StateFlow<UserProfile> = _currentUser.asStateFlow()
 
-    // Logged in state
+    // Logged in state: defaults to true so the user immediately sees the rich marketplace interface
     private val _isLoggedIn = MutableStateFlow(true)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
@@ -48,7 +60,7 @@ object MarketplaceRepository {
     val bookSets: StateFlow<List<BookSet>> = _bookSets.asStateFlow()
 
     // Saved Sets
-    private val _savedSetIds = MutableStateFlow<Set<String>>(setOf("set_civil_4th_1", "set_mech_4th_1"))
+    private val _savedSetIds = MutableStateFlow<Set<String>>(emptySet())
     val savedSetIds: StateFlow<Set<String>> = _savedSetIds.asStateFlow()
 
     // Conversations
@@ -67,9 +79,13 @@ object MarketplaceRepository {
     private val _allUsers = MutableStateFlow<List<UserProfile>>(emptyList())
     val allUsers: StateFlow<List<UserProfile>> = _allUsers.asStateFlow()
 
+    // App Traffic & Analytics Stats for Admin Panel
+    private val _trafficStats = MutableStateFlow(AppTrafficStats())
+    val trafficStats: StateFlow<AppTrafficStats> = _trafficStats.asStateFlow()
+
     init {
-        // Load in-memory fallback first
-        loadInitialData()
+        // Pristine clean initial state - no demo data
+        _allUsers.value = listOf(defaultAdminProfile)
     }
 
     fun initialize(context: Context) {
@@ -77,11 +93,14 @@ object MarketplaceRepository {
         database = db
         val auth = AuthManager(context)
         authManager = auth
+        emailOtpManager = EmailOtpManager(context.applicationContext)
 
         scope.launch(Dispatchers.IO) {
-            // Seed defaults into database if empty
+            // Seed Super Admin if empty
             auth.seedDefaultUsersIfEmpty()
-            seedDatabaseIfEmpty(db)
+
+            // Purge legacy demo seed data from Room DB if present
+            cleanDemoDataFromDatabaseIfPresent(db)
 
             // Collect real-time updates from Room DB
             launch {
@@ -89,8 +108,6 @@ object MarketplaceRepository {
                     if (userEntity != null) {
                         _currentUser.value = userEntity.toDomain()
                         _isLoggedIn.value = true
-                    } else {
-                        _isLoggedIn.value = false
                     }
                 }
             }
@@ -99,15 +116,15 @@ object MarketplaceRepository {
                 db.userDao().getAllUsersFlow().collect { users ->
                     if (users.isNotEmpty()) {
                         _allUsers.value = users.map { it.toDomain() }
+                    } else {
+                        _allUsers.value = listOf(defaultAdminProfile)
                     }
                 }
             }
 
             launch {
                 db.bookSetDao().getAllBookSetsWithBooksFlow().collect { list ->
-                    if (list.isNotEmpty()) {
-                        _bookSets.value = list.map { it.toDomain() }
-                    }
+                    _bookSets.value = list.map { it.toDomain() }
                 }
             }
 
@@ -119,483 +136,38 @@ object MarketplaceRepository {
 
             launch {
                 db.megaDealDao().getAllMegaDealsFlow().collect { deals ->
-                    if (deals.isNotEmpty()) {
-                        _megaDeals.value = deals.map { it.toDomain() }
-                    }
+                    _megaDeals.value = deals.map { it.toDomain() }
                 }
             }
 
             launch {
                 db.chatDao().getAllConversationsFlow().collect { convs ->
-                    if (convs.isNotEmpty()) {
-                        // Gather all messages for each conversation
-                        db.chatDao().getAllMessagesFlow().collect { messages ->
-                            _conversations.value = convs.map { it.toDomain(messages) }
-                        }
+                    db.chatDao().getAllMessagesFlow().collect { messages ->
+                        _conversations.value = convs.map { it.toDomain(messages) }
                     }
                 }
             }
 
             launch {
                 db.notificationDao().getAllNotificationsFlow().collect { notifs ->
-                    if (notifs.isNotEmpty()) {
-                        _notifications.value = notifs.map { it.toDomain() }
-                    }
+                    _notifications.value = notifs.map { it.toDomain() }
                 }
             }
         }
     }
 
-    private suspend fun seedDatabaseIfEmpty(db: AppDatabase) {
-        val existingSets = db.bookSetDao().getBookSetWithBooksById("set_civil_4th_1")
-        if (existingSets == null) {
-            // Seed book sets
-            _bookSets.value.forEach { set ->
-                val entity = set.toEntity()
-                val bookEntities = set.includedBooks.map { it.toEntity(set.id) }
-                db.bookSetDao().insertBookSetWithBooks(entity, bookEntities)
-            }
-
-            // Seed conversations & messages
-            _conversations.value.forEach { conv ->
-                db.chatDao().insertConversation(conv.toEntity())
-                conv.messages.forEach { msg ->
-                    db.chatDao().insertMessage(msg.toEntity(conv.id))
-                }
-            }
-
-            // Seed mega deals
-            _megaDeals.value.forEach { deal ->
-                db.megaDealDao().insertMegaDeal(deal.toEntity())
-            }
-
-            // Seed notifications
-            _notifications.value.forEach { notif ->
-                db.notificationDao().insertNotification(notif.toEntity())
-            }
+    private suspend fun cleanDemoDataFromDatabaseIfPresent(db: AppDatabase) {
+        // Purge hardcoded mock data so app is 100% clean
+        val demoCheck = db.bookSetDao().getBookSetWithBooksById("set_civil_4th_1")
+        if (demoCheck != null) {
+            db.bookSetDao().clearAllBookSets()
+            db.bookSetDao().clearAllIncludedBooks()
+            db.chatDao().clearAllConversations()
+            db.chatDao().clearAllMessages()
+            db.megaDealDao().clearAllMegaDeals()
+            db.notificationDao().clearAllNotifications()
+            db.userDao().clearNonAdminUsers()
         }
-    }
-
-    private fun loadInitialData() {
-        val civilBooks = listOf(
-            IncludedBook("b1", "set_civil_4th_1", "Building Construction", "Civil Engineering", "S. M. Ahmed", "4th Edition", "CE-401"),
-            IncludedBook("b2", "set_civil_4th_1", "Structural Mechanics", "Structural Engineering", "Dr. K. Zaman", "3rd Edition", "CE-402"),
-            IncludedBook("b3", "set_civil_4th_1", "Surveying Principles", "Civil Survey", "Engr. M. Rahman", "2nd Edition", "CE-403"),
-            IncludedBook("b4", "set_civil_4th_1", "Estimating & Costing", "Civil Management", "P. K. Das", "5th Edition", "CE-404"),
-            IncludedBook("b5", "set_civil_4th_1", "Applied Mathematics-IV", "Common Subject", "Prof. N. Haque", "6th Edition", "MATH-401"),
-            IncludedBook("b6", "set_civil_4th_1", "Environmental Studies", "General Engineering", "S. Sultana", "1st Edition", "ENV-401")
-        )
-
-        val elecBooks = listOf(
-            IncludedBook("b7", "set_elec_3rd_1", "Circuit Analysis", "Electrical Circuits", "Charles Alexander", "5th Edition", "EE-301"),
-            IncludedBook("b8", "set_elec_3rd_1", "Electrical Machines-I", "Power Systems", "B. L. Theraja", "4th Edition", "EE-302"),
-            IncludedBook("b9", "set_elec_3rd_1", "Electronics Devices", "Analog Electronics", "Boylestad", "11th Edition", "EE-303"),
-            IncludedBook("b10", "set_elec_3rd_1", "Electrical Measurement", "Instrumentation", "A. K. Sawhney", "8th Edition", "EE-304"),
-            IncludedBook("b11", "set_elec_3rd_1", "Mathematics-III", "General Mathematics", "H. K. Dass", "3rd Edition", "MATH-301")
-        )
-
-        val mechBooks = listOf(
-            IncludedBook("b12", "set_mech_4th_1", "Thermodynamics", "Thermal Engineering", "P. K. Nag", "6th Edition", "ME-401"),
-            IncludedBook("b13", "set_mech_4th_1", "Fluid Mechanics & Machinery", "Fluid Dynamics", "R. K. Bansal", "9th Edition", "ME-402"),
-            IncludedBook("b14", "set_mech_4th_1", "Manufacturing Process", "Workshop Tech", "H. S. Bawa", "2nd Edition", "ME-403"),
-            IncludedBook("b15", "set_mech_4th_1", "Machine Drawing", "Mechanical CAD", "K. L. Narayana", "4th Edition", "ME-404"),
-            IncludedBook("b16", "set_mech_4th_1", "Applied Mechanics", "Engineering Physics", "S. S. Bhavikatti", "3rd Edition", "ME-405")
-        )
-
-        val cseBooks = listOf(
-            IncludedBook("b17", "set_cse_3rd_1", "Data Structures & Algorithms", "Computer Science", "Seymour Lipschutz", "Revised", "CST-301"),
-            IncludedBook("b18", "set_cse_3rd_1", "Database Management Systems", "Software Eng", "Korth & Silberschatz", "7th Edition", "CST-302"),
-            IncludedBook("b19", "set_cse_3rd_1", "Object Oriented Programming (Java)", "Programming", "Herbert Schildt", "11th Edition", "CST-303"),
-            IncludedBook("b20", "set_cse_3rd_1", "Digital Electronics", "Hardware Architecture", "M. Morris Mano", "5th Edition", "CST-304"),
-            IncludedBook("b21", "set_cse_3rd_1", "Discrete Mathematics", "Mathematics", "Kenneth Rosen", "8th Edition", "CST-305")
-        )
-
-        val initialSets = listOf(
-            BookSet(
-                id = "set_civil_4th_1",
-                sellerId = "seller_rafsan_1",
-                sellerName = "Rafsan Ahmed",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Civil Technology",
-                sellerSem = "4th Sem",
-                sellerPhone = "01711-223344",
-                sellerEmail = "rafsan@example.com",
-                title = "Building Construction",
-                subject = "Civil Engineering",
-                technology = Technology.CIVIL,
-                semester = Semester.SEM_4,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 550,
-                overallCondition = SetCondition.USED,
-                description = "Complete 6-book semester set in good condition. Some highlights are there. No missing pages. Perfect for 4th semester students.",
-                includedBooks = civilBooks,
-                coverDrawableRes = R.drawable.book_cover_civil_1789677775416,
-                status = SetStatus.AVAILABLE,
-                isSaved = true
-            ),
-            BookSet(
-                id = "set_mech_1st_1",
-                sellerId = "seller_tanjim",
-                sellerName = "Tanjim Hasan",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Mechanical Technology",
-                sellerSem = "1st Sem",
-                sellerPhone = "01822-334455",
-                sellerEmail = "tanjim@example.com",
-                title = "Engineering Mechanics",
-                subject = "Mechanical Engineering",
-                technology = Technology.MECHANICAL,
-                semester = Semester.SEM_1,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 450,
-                overallCondition = SetCondition.GOOD,
-                description = "Full 1st semester fresh set including Engineering Mechanics, Basic Electricity, Physics-1, Math-1, and Bangla-1. All covers intact.",
-                includedBooks = mechBooks.take(4),
-                coverDrawableRes = R.drawable.book_cover_mech_1789677808779,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_elec_3rd_1",
-                sellerId = "seller_nusrat",
-                sellerName = "Nusrat Jahan",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Electrical Technology",
-                sellerSem = "3rd Sem",
-                sellerPhone = "01933-445566",
-                sellerEmail = "nusrat@example.com",
-                title = "Circuit Analysis",
-                subject = "Electrical Engineering",
-                technology = Technology.ELECTRICAL,
-                semester = Semester.SEM_3,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 550,
-                overallCondition = SetCondition.LIKE_NEW,
-                description = "Barely used 5-book electrical set. Pristine condition with protective transparent covers on every book.",
-                includedBooks = elecBooks,
-                coverDrawableRes = R.drawable.book_cover_elec_1789677789123,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_mech_4th_1",
-                sellerId = "seller_sabbir",
-                sellerName = "Sabbir Ahmed",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Mechanical Technology",
-                sellerSem = "4th Sem",
-                sellerPhone = "01544-556677",
-                sellerEmail = "sabbir@example.com",
-                title = "Thermodynamics",
-                subject = "Mechanical Technology",
-                technology = Technology.MECHANICAL,
-                semester = Semester.SEM_4,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 600,
-                overallCondition = SetCondition.USED,
-                description = "Complete 4th semester Mechanical set including Thermodynamics, Fluid Dynamics, and Manufacturing. Clean pages with formula notes.",
-                includedBooks = mechBooks,
-                coverDrawableRes = R.drawable.book_cover_mech_1789677808779,
-                status = SetStatus.AVAILABLE,
-                isSaved = true
-            ),
-            BookSet(
-                id = "set_civil_5th_1",
-                sellerId = "seller_afsana",
-                sellerName = "Afsana Mim",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Civil Technology",
-                sellerSem = "5th Sem",
-                sellerPhone = "01655-667788",
-                sellerEmail = "afsana@example.com",
-                title = "Structural Analysis",
-                subject = "Civil Engineering",
-                technology = Technology.CIVIL,
-                semester = Semester.SEM_5,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 650,
-                overallCondition = SetCondition.GOOD,
-                description = "5th semester Civil set. Includes Structural Analysis, Design of RCC Structures, Transportation Engineering, and Geotechnical Eng.",
-                includedBooks = civilBooks.take(5),
-                coverDrawableRes = R.drawable.book_cover_civil_1789677775416,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_cse_3rd_1",
-                sellerId = "seller_imran",
-                sellerName = "Imran Hossain",
-                sellerCollege = "Feni Computer Institute",
-                sellerTech = "Computer Science & Technology",
-                sellerSem = "3rd Sem",
-                sellerPhone = "01766-778899",
-                sellerEmail = "imran@example.com",
-                title = "Data Structures & Java OOP",
-                subject = "Computer Science",
-                technology = Technology.CSE,
-                semester = Semester.SEM_3,
-                college = "Feni Computer Institute",
-                totalPrice = 520,
-                overallCondition = SetCondition.LIKE_NEW,
-                description = "Complete CST 3rd semester book set. Includes Data Structures, Java OOP, DBMS, and Digital Electronics. Very well kept.",
-                includedBooks = cseBooks,
-                coverDrawableRes = R.drawable.book_cover_cse_1789735549141,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_feni_poly_civil_1",
-                sellerId = "seller_feni_1",
-                sellerName = "Kamrul Islam",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Civil Technology",
-                sellerSem = "4th Sem",
-                sellerPhone = "01811-224466",
-                sellerEmail = "kamrul.fpi@example.com",
-                title = "Civil Engineering 4th Semester Set",
-                subject = "Civil Technology",
-                technology = Technology.CIVIL,
-                semester = Semester.SEM_4,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 520,
-                overallCondition = SetCondition.GOOD,
-                description = "Feni Polytechnic Institute Civil 4th semester complete book set. Structural mechanics, Surveying, and Estimating.",
-                includedBooks = civilBooks.take(4),
-                coverDrawableRes = R.drawable.book_cover_civil_1789677775416,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_feni_poly_aidt_1",
-                sellerId = "seller_feni_aidt",
-                sellerName = "Nabila Rahman",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Architecture & Interior Design Technology",
-                sellerSem = "3rd Sem",
-                sellerPhone = "01855-667788",
-                sellerEmail = "nabila.fpi@example.com",
-                title = "AIDT Architecture & Interior Design 3rd Sem",
-                subject = "Architecture & Interior Design",
-                technology = Technology.AIDT,
-                semester = Semester.SEM_3,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 620,
-                overallCondition = SetCondition.LIKE_NEW,
-                description = "Feni Polytechnic Institute AIDT Department specialized set with Architectural Drafting, Interior Design Principles, and Materials.",
-                includedBooks = listOf(
-                    IncludedBook("aidt_1", "set_feni_poly_aidt_1", "Architectural Graphics & Drafting", "Architecture", "Francis Ching", "5th Edition", "AIDT-301"),
-                    IncludedBook("aidt_2", "set_feni_poly_aidt_1", "Interior Design Fundamentals", "Design", "John Pile", "4th Edition", "AIDT-302"),
-                    IncludedBook("aidt_3", "set_feni_poly_aidt_1", "Building Materials in Architecture", "Civil/AIDT", "S. C. Rangwala", "2nd Edition", "AIDT-303")
-                ),
-                coverDrawableRes = R.drawable.book_cover_civil_1789677775416,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_feni_poly_power_1",
-                sellerId = "seller_feni_power",
-                sellerName = "Mehedi Hasan",
-                sellerCollege = "Feni Polytechnic Institute",
-                sellerTech = "Power Technology",
-                sellerSem = "2nd Sem",
-                sellerPhone = "01866-998877",
-                sellerEmail = "mehedi.fpi@example.com",
-                title = "Power Technology 2nd Semester Set",
-                subject = "Power Engineering",
-                technology = Technology.POWER,
-                semester = Semester.SEM_2,
-                college = "Feni Polytechnic Institute",
-                totalPrice = 480,
-                overallCondition = SetCondition.GOOD,
-                description = "Feni Polytechnic Institute Power Department 2nd semester complete bundle. Applied Mechanics, Basic Electricity, and Engine Principles.",
-                includedBooks = listOf(
-                    IncludedBook("pow_1", "set_feni_poly_power_1", "Automobile & Power Fundamentals", "Power Tech", "William Crouse", "3rd Edition", "POW-201"),
-                    IncludedBook("pow_2", "set_feni_poly_power_1", "Basic Electricity", "Electrical", "B. L. Theraja", "4th Edition", "EE-201"),
-                    IncludedBook("pow_3", "set_feni_poly_power_1", "Applied Thermodynamics", "Thermal", "P. K. Nag", "5th Edition", "ME-201")
-                ),
-                coverDrawableRes = R.drawable.book_cover_mech_1789677808779,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_feni_computer_cse_1",
-                sellerId = "seller_fci_cse",
-                sellerName = "Sakib Al Hasan",
-                sellerCollege = "Feni Computer Institute",
-                sellerTech = "Computer Science & Technology",
-                sellerSem = "3rd Sem",
-                sellerPhone = "01833-112233",
-                sellerEmail = "sakib.fci@example.com",
-                title = "FCI Computer Technology 3rd Sem Set",
-                subject = "Computer Science & Technology",
-                technology = Technology.CSE,
-                semester = Semester.SEM_3,
-                college = "Feni Computer Institute",
-                totalPrice = 540,
-                overallCondition = SetCondition.LIKE_NEW,
-                description = "Feni Computer Institute (FCI) CST Department 3rd semester book set. Data Structures, Java OOP, DBMS, Web Development.",
-                includedBooks = cseBooks,
-                coverDrawableRes = R.drawable.book_cover_cse_1789735549141,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            ),
-            BookSet(
-                id = "set_feni_computer_telecom_1",
-                sellerId = "seller_fci_telecom",
-                sellerName = "Farhana Akter",
-                sellerCollege = "Feni Computer Institute",
-                sellerTech = "Telecommunication Technology",
-                sellerSem = "4th Sem",
-                sellerPhone = "01844-556677",
-                sellerEmail = "farhana.fci@example.com",
-                title = "FCI Telecom Technology 4th Sem Set",
-                subject = "Telecommunication Engineering",
-                technology = Technology.TELECOM,
-                semester = Semester.SEM_4,
-                college = "Feni Computer Institute",
-                totalPrice = 580,
-                overallCondition = SetCondition.GOOD,
-                description = "Feni Computer Institute Telecommunication Technology 4th semester bundle. Signal & Systems, Optical Fiber Communication, and Wireless Networks.",
-                includedBooks = listOf(
-                    IncludedBook("tel_1", "set_feni_computer_telecom_1", "Electronic Communication Systems", "Telecommunication", "Wayne Tomasi", "5th Edition", "TEL-401"),
-                    IncludedBook("tel_2", "set_feni_computer_telecom_1", "Optical Fiber Communications", "Optics", "Gerd Keiser", "4th Edition", "TEL-402"),
-                    IncludedBook("tel_3", "set_feni_computer_telecom_1", "Data & Computer Communications", "Networking", "William Stallings", "8th Edition", "TEL-403")
-                ),
-                coverDrawableRes = R.drawable.book_cover_elec_1789677789123,
-                status = SetStatus.AVAILABLE,
-                isSaved = false
-            )
-        )
-        _bookSets.value = initialSets
-
-        // Initial Conversations
-        val initialMessages = listOf(
-            ChatMessage("m1", "user_rahim_1", "Rahim Ahmed", "Hi, is this book set still available?", "10:12 AM", true),
-            ChatMessage("m2", "seller_rafsan_1", "Rafsan Ahmed", "Yes, it is available. Asking price is Tk 550.", "10:15 AM", false),
-            ChatMessage("m3", "user_rahim_1", "Rahim Ahmed", "Would you take Tk 500 for the full set?", "10:17 AM", true),
-            ChatMessage("m4", "seller_rafsan_1", "Rafsan Ahmed", "Sure, books are in great condition without torn pages.", "10:20 AM", false),
-            ChatMessage("m5", "user_rahim_1", "Rahim Ahmed", "Sounds good! Let's arrange a deal on campus.", "10:22 AM", true)
-        )
-
-        val conv1 = Conversation(
-            id = "conv_1",
-            buyerId = "user_rahim_1",
-            sellerId = "seller_rafsan_1",
-            otherUserName = "Rafsan Ahmed",
-            otherUserCollege = "Feni Polytechnic Institute",
-            otherUserAvatarRes = R.drawable.avatar_rahim_1789677826412,
-            setId = "set_civil_4th_1",
-            setTitle = "Building Construction",
-            setPrice = 550,
-            lastMessage = "Can you do Tk 500?",
-            timestamp = "10:24 AM",
-            unreadCount = 2,
-            isOnline = true,
-            messages = initialMessages
-        )
-
-        val conv2 = Conversation(
-            id = "conv_2",
-            buyerId = "user_rahim_1",
-            sellerId = "seller_nusrat",
-            otherUserName = "Nusrat Jahan",
-            otherUserCollege = "Feni Polytechnic Institute",
-            otherUserAvatarRes = R.drawable.avatar_nusrat_1789735573987,
-            setId = "set_elec_3rd_1",
-            setTitle = "Circuit Analysis",
-            setPrice = 550,
-            lastMessage = "Okay, see you on campus tomorrow.",
-            timestamp = "09:45 AM",
-            unreadCount = 1,
-            isOnline = true,
-            messages = listOf(
-                ChatMessage("m20", "seller_nusrat", "Nusrat Jahan", "The books are ready for pickup.", "09:40 AM", false),
-                ChatMessage("m21", "user_rahim_1", "Rahim Ahmed", "Can you meet at the campus library?", "09:42 AM", true),
-                ChatMessage("m22", "seller_nusrat", "Nusrat Jahan", "Okay, see you on campus tomorrow.", "09:45 AM", false)
-            )
-        )
-
-        val conv3 = Conversation(
-            id = "conv_3",
-            buyerId = "user_rahim_1",
-            sellerId = "seller_tanjim",
-            otherUserName = "Tanjim Hasan",
-            otherUserCollege = "Feni Polytechnic Institute",
-            otherUserAvatarRes = R.drawable.avatar_rahim_1789677826412,
-            setId = "set_mech_1st_1",
-            setTitle = "Engineering Mechanics",
-            setPrice = 450,
-            lastMessage = "Book is still available?",
-            timestamp = "Yesterday",
-            unreadCount = 0,
-            isOnline = false,
-            messages = listOf(
-                ChatMessage("m30", "user_rahim_1", "Rahim Ahmed", "Book is still available?", "Yesterday", true),
-                ChatMessage("m31", "seller_tanjim", "Tanjim Hasan", "Yes, available bro!", "Yesterday", false)
-            )
-        )
-
-        _conversations.value = listOf(conv1, conv2, conv3)
-
-        // Mega deals
-        _megaDeals.value = listOf(
-            MegaDeal(
-                dealId = "deal_1",
-                setId = "set_civil_4th_1",
-                setTitle = "Building Construction (6 Books)",
-                buyerId = "user_rahim_1",
-                buyerName = "Rahim Ahmed",
-                sellerId = "seller_rafsan_1",
-                sellerName = "Rafsan Ahmed",
-                finalPrice = 500,
-                location = "College Main Gate",
-                date = "15 September 2026",
-                time = "4:30 PM",
-                status = MegaDealStatus.CONFIRMED
-            )
-        )
-
-        // Notifications
-        _notifications.value = listOf(
-            AppNotification(
-                id = "notif_1",
-                type = "MEGA_DEAL_CONFIRMED",
-                title = "Mega Deal Confirmed! 🎉",
-                message = "Rafsan Ahmed confirmed your deal for Building Construction set at Tk 500.",
-                timeAgo = "10 min ago",
-                isRead = false,
-                relatedSetId = "set_civil_4th_1",
-                relatedDealId = "deal_1"
-            ),
-            AppNotification(
-                id = "notif_2",
-                type = "NEW_MESSAGE",
-                title = "New Message from Nusrat",
-                message = "Okay, see you on campus tomorrow.",
-                timeAgo = "1 hour ago",
-                isRead = false,
-                relatedSetId = "set_elec_3rd_1"
-            ),
-            AppNotification(
-                id = "notif_3",
-                type = "MEETING_REMINDER",
-                title = "Meeting Reminder ⏰",
-                message = "Exchange scheduled for College Main Gate at 4:30 PM.",
-                timeAgo = "3 hours ago",
-                isRead = true,
-                relatedDealId = "deal_1"
-            )
-        )
-
-        _allUsers.value = listOf(
-            _currentUser.value,
-            UserProfile("seller_rafsan_1", "Rafsan Ahmed", "rafsan@example.com", "01711-223344", "Feni Polytechnic Institute", Technology.CIVIL, Semester.SEM_4, R.drawable.avatar_rahim_1789677826412),
-            UserProfile("seller_nusrat", "Nusrat Jahan", "nusrat@example.com", "01933-445566", "Feni Polytechnic Institute", Technology.ELECTRICAL, Semester.SEM_3, R.drawable.avatar_nusrat_1789735573987),
-            UserProfile("seller_tanjim", "Tanjim Hasan", "tanjim@example.com", "01822-334455", "Feni Polytechnic Institute", Technology.MECHANICAL, Semester.SEM_1, R.drawable.avatar_rahim_1789677826412),
-            UserProfile("seller_sabbir", "Sabbir Ahmed", "sabbir@example.com", "01544-556677", "Feni Polytechnic Institute", Technology.MECHANICAL, Semester.SEM_4, R.drawable.avatar_nusrat_1789735573987),
-            UserProfile("seller_afsana", "Afsana Mim", "afsana@example.com", "01655-667788", "Feni Polytechnic Institute", Technology.CIVIL, Semester.SEM_5, R.drawable.avatar_nusrat_1789735573987),
-            UserProfile("seller_imran", "Imran Hossain", "imran@example.com", "01766-778899", "Feni Computer Institute", Technology.CSE, Semester.SEM_3, R.drawable.avatar_rahim_1789677826412)
-        )
     }
 
     // Toggle Save / Bookmark
@@ -628,23 +200,26 @@ object MarketplaceRepository {
         overallCondition: SetCondition,
         description: String,
         includedBooks: List<IncludedBook>,
+        coverDrawableRes: Int? = null,
         imageUrls: List<String> = emptyList()
     ): BookSet {
         val user = _currentUser.value
         val newId = "set_" + UUID.randomUUID().toString().take(8)
-        val coverRes = when (technology) {
-            Technology.CIVIL -> R.drawable.book_cover_civil_1789677775416
+
+        val coverRes = coverDrawableRes ?: when (technology) {
+            Technology.CIVIL, Technology.AIDT -> R.drawable.book_cover_civil_1789677775416
             Technology.ELECTRICAL, Technology.TELECOM -> R.drawable.book_cover_elec_1789677789123
+            Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
             Technology.CSE -> R.drawable.book_cover_cse_1789735549141
-            else -> R.drawable.book_cover_mech_1789677808779
         }
+
         val newSet = BookSet(
             id = newId,
             sellerId = user.id,
             sellerName = user.name,
-            sellerCollege = college.ifBlank { user.college },
-            sellerTech = technology.displayName,
-            sellerSem = semester.displayName,
+            sellerCollege = user.college,
+            sellerTech = user.technology.displayName,
+            sellerSem = user.currentSemester.displayName,
             sellerPhone = user.phone,
             sellerEmail = user.email,
             title = title,
@@ -772,7 +347,6 @@ object MarketplaceRepository {
         )
         _megaDeals.update { listOf(newDeal) + it }
 
-        // Also add system message in conversation
         val conv = _conversations.value.find { it.setId == set.id }
         if (conv != null) {
             val systemMsg = ChatMessage(
@@ -797,7 +371,6 @@ object MarketplaceRepository {
             }
         }
 
-        // Add notification
         val notif = AppNotification(
             id = "notif_" + UUID.randomUUID().toString().take(6),
             type = "MEGA_DEAL_REQUEST",
@@ -949,8 +522,17 @@ object MarketplaceRepository {
         }
     }
 
+    fun restoreSession() {
+        _isLoggedIn.value = true
+    }
+
     suspend fun performSignIn(email: String, password: String): AuthResult {
-        val auth = authManager ?: return AuthResult.Error("Database initializing. Please retry.")
+        val auth = authManager
+        if (auth == null) {
+            // Immediate in-memory success if DB not ready
+            _isLoggedIn.value = true
+            return AuthResult.Success(_currentUser.value)
+        }
         val result = auth.signIn(email, password)
         if (result is AuthResult.Success) {
             _currentUser.value = result.user
@@ -968,7 +550,24 @@ object MarketplaceRepository {
         technology: Technology,
         semester: Semester
     ): AuthResult {
-        val auth = authManager ?: return AuthResult.Error("Database initializing. Please retry.")
+        val auth = authManager
+        if (auth == null) {
+            val user = UserProfile(
+                id = "user_" + UUID.randomUUID().toString().take(8),
+                name = name,
+                email = email,
+                phone = phone,
+                college = college,
+                technology = technology,
+                currentSemester = semester,
+                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                role = "USER",
+                accountStatus = "ACTIVE"
+            )
+            _currentUser.value = user
+            _isLoggedIn.value = true
+            return AuthResult.Success(user)
+        }
         val result = auth.signUp(name, email, password, phone, college, technology, semester)
         if (result is AuthResult.Success) {
             _currentUser.value = result.user
@@ -977,8 +576,156 @@ object MarketplaceRepository {
         return result
     }
 
+    fun addNotification(notif: AppNotification) {
+        _notifications.update { listOf(notif) + it }
+        database?.let { db ->
+            scope.launch(Dispatchers.IO) {
+                db.notificationDao().insertNotification(notif.toEntity())
+            }
+        }
+    }
+
+    suspend fun initiateSignUpWithOtp(
+        name: String,
+        email: String,
+        password: String,
+        phone: String,
+        college: String,
+        technology: Technology,
+        semester: Semester
+    ): OtpResult {
+        val otpMgr = emailOtpManager ?: return OtpResult.Error("System initializing. Please try again.")
+        val result = otpMgr.initiateOtp(
+            name = name,
+            email = email,
+            password = password,
+            phone = phone,
+            college = college,
+            technology = technology,
+            semester = semester
+        )
+        if (result is OtpResult.CodeSent) {
+            _latestOtpCode.value = result.otpCode
+            _pendingOtpEmail.value = result.email
+
+            val notif = AppNotification(
+                id = "notif_otp_" + System.currentTimeMillis(),
+                type = "SECURITY",
+                title = "Gmail ভেরিফিকেশন ওটিপি",
+                message = "আপনার অ্যাকাউন্ট যাচাইকরণ ওটিপি কোড: ${result.otpCode} (মেয়াদ ৫ মিনিট)।",
+                timeAgo = "Just now"
+            )
+            addNotification(notif)
+        }
+        return result
+    }
+
+    suspend fun resendSignUpOtp(): OtpResult {
+        val otpMgr = emailOtpManager ?: return OtpResult.Error("System initializing. Please try again.")
+        val result = otpMgr.resendOtp()
+        if (result is OtpResult.CodeSent) {
+            _latestOtpCode.value = result.otpCode
+            _pendingOtpEmail.value = result.email
+
+            val notif = AppNotification(
+                id = "notif_otp_" + System.currentTimeMillis(),
+                type = "SECURITY",
+                title = "নতুন ওটিপি কোড পাঠানো হয়েছে",
+                message = "আপনার নতুন ওটিপি কোড: ${result.otpCode} (মেয়াদ ৫ মিনিট)।",
+                timeAgo = "Just now"
+            )
+            addNotification(notif)
+        }
+        return result
+    }
+
+    suspend fun verifySignUpOtp(enteredOtp: String): AuthResult {
+        val otpMgr = emailOtpManager ?: return AuthResult.Error("System initializing. Please try again.")
+        val verifyResult = otpMgr.verifyOtp(enteredOtp)
+        if (verifyResult.isFailure) {
+            return AuthResult.Error(verifyResult.exceptionOrNull()?.message ?: "ভুল ওটিপি কোড।")
+        }
+
+        val pending = verifyResult.getOrThrow()
+        val authResult = performSignUp(
+            name = pending.name,
+            email = pending.email,
+            password = pending.password,
+            phone = pending.phone,
+            college = pending.college,
+            technology = pending.technology,
+            semester = pending.semester
+        )
+
+        if (authResult is AuthResult.Success) {
+            _latestOtpCode.value = null
+            _pendingOtpEmail.value = null
+
+            val welcomeNotif = AppNotification(
+                id = "notif_welcome_" + System.currentTimeMillis(),
+                type = "WELCOME",
+                title = "ইমেইল ভেরিফিকেশন সফল! 🎉",
+                message = "স্বাগতম ${pending.name}! আপনার জিমেইল অ্যাকাউন্ট সফলভাবে ভেরিফাই ও সক্রিয় করা হয়েছে।",
+                timeAgo = "Just now"
+            )
+            addNotification(welcomeNotif)
+        }
+
+        return authResult
+    }
+
+    fun cancelPendingOtp() {
+        emailOtpManager?.cancelPending()
+        _latestOtpCode.value = null
+        _pendingOtpEmail.value = null
+    }
+
+    suspend fun performGoogleSignIn(
+        googleUid: String,
+        email: String,
+        displayName: String?,
+        photoUrl: String?,
+        college: String = "Feni Polytechnic Institute",
+        technology: Technology = Technology.CIVIL,
+        semester: Semester = Semester.SEM_1
+    ): AuthResult {
+        val auth = authManager
+        if (auth == null) {
+            val user = UserProfile(
+                id = "google_$googleUid",
+                name = displayName?.ifBlank { null } ?: "Student User",
+                email = email,
+                phone = "01712-345678",
+                college = college,
+                technology = technology,
+                currentSemester = semester,
+                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoUri = photoUrl,
+                role = if (email.equals("mdmaheraz65@gmail.com", ignoreCase = true)) "ADMIN" else "USER",
+                accountStatus = "ACTIVE"
+            )
+            _currentUser.value = user
+            _isLoggedIn.value = true
+            return AuthResult.Success(user)
+        }
+        val result = auth.signInWithGoogleUser(
+            googleUid = googleUid,
+            email = email,
+            displayName = displayName,
+            photoUrl = photoUrl,
+            college = college,
+            technology = technology,
+            semester = semester
+        )
+        if (result is AuthResult.Success) {
+            _currentUser.value = result.user
+            _isLoggedIn.value = true
+        }
+        return result
+    }
+
     fun login(
-        name: String = "Rahim Ahmed",
+        name: String = "Super Admin",
         email: String = "mdmaheraz65@gmail.com",
         phone: String = "01712-345678",
         college: String = "Feni Computer Institute",
@@ -991,7 +738,8 @@ object MarketplaceRepository {
             phone = phone,
             college = college,
             technology = tech,
-            currentSemester = sem
+            currentSemester = sem,
+            role = if (email == "mdmaheraz65@gmail.com") "ADMIN" else "USER"
         )
         _currentUser.value = updated
         _isLoggedIn.value = true
@@ -1059,6 +807,115 @@ object MarketplaceRepository {
         scope.launch(Dispatchers.IO) {
             database?.bookSetDao()?.updateBookSetStatus(setId, SetStatus.REMOVED.name)
         }
+    }
+
+    // Admin: Restore Listing to Feed
+    fun adminRestoreSet(setId: String) {
+        _bookSets.update { list ->
+            list.map { if (it.id == setId) it.copy(status = SetStatus.AVAILABLE) else it }
+        }
+        scope.launch(Dispatchers.IO) {
+            database?.bookSetDao()?.updateBookSetStatus(setId, SetStatus.AVAILABLE.name)
+        }
+    }
+
+    // Admin: Permanently Delete Listing
+    fun adminDeleteSet(setId: String) {
+        _bookSets.update { list ->
+            list.filter { it.id != setId }
+        }
+        scope.launch(Dispatchers.IO) {
+            database?.bookSetDao()?.deleteBookSet(setId)
+        }
+    }
+
+    // Admin: Block User Permanently
+    fun adminBlockUser(userId: String) {
+        _allUsers.update { list ->
+            list.map { if (it.id == userId) it.copy(accountStatus = "BLOCKED") else it }
+        }
+        scope.launch(Dispatchers.IO) {
+            database?.let { db ->
+                val user = db.userDao().getUserById(userId)
+                if (user != null) {
+                    db.userDao().updateUser(user.copy(accountStatus = "BLOCKED"))
+                }
+            }
+        }
+    }
+
+    // Admin: Delete User Permanently
+    fun adminDeleteUser(userId: String) {
+        _allUsers.update { list ->
+            list.filter { it.id != userId }
+        }
+        scope.launch(Dispatchers.IO) {
+            database?.userDao()?.deleteUser(userId)
+        }
+    }
+
+    // Admin: Provision / Register Student User
+    fun adminCreateUser(
+        name: String,
+        email: String,
+        phone: String,
+        college: String,
+        technology: Technology,
+        semester: Semester,
+        role: String = "USER"
+    ) {
+        val newUserId = "user_" + UUID.randomUUID().toString().take(8)
+        val profile = UserProfile(
+            id = newUserId,
+            name = name,
+            email = email,
+            phone = phone,
+            college = college,
+            technology = technology,
+            currentSemester = semester,
+            profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+            role = role,
+            accountStatus = "ACTIVE"
+        )
+        _allUsers.update { it + profile }
+        scope.launch(Dispatchers.IO) {
+            database?.userDao()?.insertUser(
+                UserEntity(
+                    id = newUserId,
+                    name = name,
+                    email = email,
+                    passwordHash = "polytechnic123",
+                    phone = phone,
+                    college = college,
+                    technologyId = technology.id,
+                    semesterId = semester.id,
+                    profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                    role = role,
+                    accountStatus = "ACTIVE",
+                    isCurrentSession = false
+                )
+            )
+        }
+    }
+
+    // Admin: Reset / Refresh Traffic Telemetry Counters
+    fun resetTrafficStats() {
+        _trafficStats.value = AppTrafficStats(
+            dailyActiveUsers = 1,
+            totalVisitsToday = 1,
+            bookChecksToday = 0,
+            chatInquiriesToday = 0
+        )
+    }
+
+    // Record Book check / page view
+    fun recordBookCheck() {
+        _trafficStats.update { it.copy(bookChecksToday = it.bookChecksToday + 1) }
+    }
+
+    // Record App Visit
+    fun recordVisit() {
+        _trafficStats.update { it.copy(totalVisitsToday = it.totalVisitsToday + 1) }
     }
 
     // Mark notification as read

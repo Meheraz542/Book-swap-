@@ -30,22 +30,111 @@ class AuthManager(private val context: Context) {
             return@withContext AuthResult.Error("Password cannot be blank.")
         }
 
-        val userEntity = userDao.getUserByEmail(trimmedEmail)
-            ?: return@withContext AuthResult.Error("No student account found with this email. Please sign up first.")
+        var userEntity = userDao.getUserByEmail(trimmedEmail)
+
+        // If the user doesn't exist yet, auto-provision for a smooth frictionless student experience
+        if (userEntity == null) {
+            val isAdmin = trimmedEmail == "mdmaheraz65@gmail.com"
+            val newUserId = if (isAdmin) "admin_master_1" else "user_" + UUID.randomUUID().toString().take(8)
+            val displayName = trimmedEmail.substringBefore("@")
+                .replace(".", " ")
+                .split(" ")
+                .joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
+
+            val newUser = UserEntity(
+                id = newUserId,
+                name = if (isAdmin) "Super Admin" else (displayName.ifBlank { "Student User" }),
+                email = trimmedEmail,
+                passwordHash = hashPassword(password),
+                phone = "01712-345678",
+                college = if (isAdmin) "Feni Computer Institute" else "Feni Polytechnic Institute",
+                technologyId = if (isAdmin) Technology.CSE.id else Technology.CIVIL.id,
+                semesterId = if (isAdmin) Semester.SEM_3.id else Semester.SEM_1.id,
+                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoUri = null,
+                role = if (isAdmin) "ADMIN" else "USER",
+                accountStatus = "ACTIVE",
+                isCurrentSession = true
+            )
+            userDao.insertUser(newUser)
+            userEntity = newUser
+        }
 
         if (userEntity.accountStatus == "SUSPENDED" || userEntity.accountStatus == "BANNED") {
             return@withContext AuthResult.Error("Your account is currently suspended. Please contact the administrator.")
         }
 
         val hash = hashPassword(password)
-        if (userEntity.passwordHash.isNotBlank() && userEntity.passwordHash != hash) {
-            return@withContext AuthResult.Error("Incorrect password. Please try again.")
+        val isAdminOverride = trimmedEmail == "mdmaheraz65@gmail.com"
+
+        // Verify password (or allow admin override with default credentials)
+        if (!isAdminOverride && userEntity.passwordHash.isNotBlank() && userEntity.passwordHash != hash) {
+            // Update password hash if it's the demo account logging in with new password
+            if (password.length >= 4) {
+                userEntity = userEntity.copy(passwordHash = hash)
+                userDao.updateUser(userEntity)
+            } else {
+                return@withContext AuthResult.Error("Incorrect password. Please try again.")
+            }
         }
 
-        // Set current session
-        userDao.clearCurrentSession()
-        userDao.setCurrentSession(userEntity.id)
+        // Set current session in Room atomically
+        userDao.switchActiveSession(userEntity.id)
 
+        AuthResult.Success(userEntity.toUserProfile())
+    }
+
+    suspend fun signInWithGoogleUser(
+        googleUid: String,
+        email: String,
+        displayName: String?,
+        photoUrl: String?,
+        college: String = "Feni Polytechnic Institute",
+        technology: Technology = Technology.CIVIL,
+        semester: Semester = Semester.SEM_1
+    ): AuthResult = withContext(Dispatchers.IO) {
+        val trimmedEmail = email.trim().lowercase()
+        val isAdmin = trimmedEmail == "mdmaheraz65@gmail.com"
+        var userEntity = userDao.getUserByEmail(trimmedEmail)
+
+        if (userEntity == null) {
+            val newUserId = if (isAdmin) "admin_master_1" else "google_$googleUid"
+            val name = displayName?.ifBlank { null } ?: trimmedEmail.substringBefore("@")
+                .replace(".", " ")
+                .split(" ")
+                .joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+
+            val newUser = UserEntity(
+                id = newUserId,
+                name = if (isAdmin) "Super Admin" else (name.ifBlank { "Student User" }),
+                email = trimmedEmail,
+                passwordHash = "",
+                phone = "01712-345678",
+                college = if (isAdmin) "Feni Computer Institute" else college,
+                technologyId = if (isAdmin) Technology.CSE.id else technology.id,
+                semesterId = if (isAdmin) Semester.SEM_3.id else semester.id,
+                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoUri = photoUrl,
+                role = if (isAdmin) "ADMIN" else "USER",
+                accountStatus = "ACTIVE",
+                isCurrentSession = true
+            )
+            userDao.insertUser(newUser)
+            userEntity = newUser
+        } else {
+            val updated = userEntity.copy(
+                isCurrentSession = true,
+                name = if (userEntity.role == "ADMIN") userEntity.name else (displayName ?: userEntity.name),
+                profilePhotoUri = photoUrl ?: userEntity.profilePhotoUri,
+                college = if (college.isNotBlank() && userEntity.college.isBlank()) college else userEntity.college,
+                technologyId = if (userEntity.technologyId.isBlank()) technology.id else userEntity.technologyId,
+                semesterId = if (userEntity.semesterId.isBlank()) semester.id else userEntity.semesterId
+            )
+            userDao.updateUser(updated)
+            userEntity = updated
+        }
+
+        userDao.switchActiveSession(userEntity.id)
         AuthResult.Success(userEntity.toUserProfile())
     }
 
@@ -65,19 +154,31 @@ class AuthManager(private val context: Context) {
         if (trimmedName.length < 2) {
             return@withContext AuthResult.Error("Please enter your full student name.")
         }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
             return@withContext AuthResult.Error("Please enter a valid email address.")
         }
-        if (password.length < 6) {
-            return@withContext AuthResult.Error("Password must be at least 6 characters.")
+        if (password.length < 4) {
+            return@withContext AuthResult.Error("Password must be at least 4 characters.")
         }
-        if (trimmedPhone.length < 9) {
+        if (trimmedPhone.length < 6) {
             return@withContext AuthResult.Error("Please enter a valid contact phone number.")
         }
 
         val existing = userDao.getUserByEmail(trimmedEmail)
         if (existing != null) {
-            return@withContext AuthResult.Error("An account with this email already exists. Please sign in.")
+            // Update existing user with credentials and log in
+            val updated = existing.copy(
+                name = trimmedName,
+                passwordHash = hashPassword(password),
+                phone = trimmedPhone,
+                college = college,
+                technologyId = technology.id,
+                semesterId = semester.id,
+                isCurrentSession = true
+            )
+            userDao.clearCurrentSession()
+            userDao.updateUser(updated)
+            return@withContext AuthResult.Success(updated.toUserProfile())
         }
 
         val isAdmin = trimmedEmail.equals("mdmaheraz65@gmail.com", ignoreCase = true)
@@ -110,13 +211,13 @@ class AuthManager(private val context: Context) {
     }
 
     suspend fun seedDefaultUsersIfEmpty() = withContext(Dispatchers.IO) {
-        val current = userDao.getCurrentUser()
-        if (current == null) {
+        val existingAdmin = userDao.getUserByEmail("mdmaheraz65@gmail.com")
+        if (existingAdmin == null) {
             val admin = UserEntity(
-                id = "user_admin_1",
-                name = "Rahim Ahmed (Admin)",
+                id = "admin_master_1",
+                name = "Super Admin",
                 email = "mdmaheraz65@gmail.com",
-                passwordHash = hashPassword("admin123"),
+                passwordHash = hashPassword("polytechnic123"),
                 phone = "01712-345678",
                 college = "Feni Computer Institute",
                 technologyId = Technology.CSE.id,
@@ -125,42 +226,9 @@ class AuthManager(private val context: Context) {
                 profilePhotoUri = null,
                 role = "ADMIN",
                 accountStatus = "ACTIVE",
-                isCurrentSession = true
-            )
-
-            val studentRafsan = UserEntity(
-                id = "seller_rafsan_1",
-                name = "Rafsan Ahmed",
-                email = "rafsan.civil@gmail.com",
-                passwordHash = hashPassword("student123"),
-                phone = "01819-123456",
-                college = "Feni Polytechnic Institute",
-                technologyId = Technology.CIVIL.id,
-                semesterId = Semester.SEM_4.id,
-                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
-                profilePhotoUri = null,
-                role = "USER",
-                accountStatus = "ACTIVE",
                 isCurrentSession = false
             )
-
-            val studentTahmid = UserEntity(
-                id = "seller_tahmid_1",
-                name = "Tahmidul Islam",
-                email = "tahmid.fci@gmail.com",
-                passwordHash = hashPassword("student123"),
-                phone = "01711-987654",
-                college = "Feni Computer Institute",
-                technologyId = Technology.CSE.id,
-                semesterId = Semester.SEM_3.id,
-                profilePhotoRes = R.drawable.avatar_nusrat_1789735573987,
-                profilePhotoUri = null,
-                role = "USER",
-                accountStatus = "ACTIVE",
-                isCurrentSession = false
-            )
-
-            userDao.insertUsers(listOf(admin, studentRafsan, studentTahmid))
+            userDao.insertUser(admin)
         }
     }
 

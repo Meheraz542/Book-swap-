@@ -22,10 +22,19 @@ class ExampleRobolectricTest {
   @Test
   fun `verify repository initial data`() {
     val user = com.example.data.MarketplaceRepository.currentUser.value
-    assertEquals("Rahim Ahmed", user.name)
+    assertEquals("Super Admin", user.name)
     assertEquals("mdmaheraz65@gmail.com", user.email)
     assertEquals("ADMIN", user.role)
     val sets = com.example.data.MarketplaceRepository.bookSets.value
     assert(sets.isNotEmpty())
   }
+
+  @Test
+  fun `launch MainActivity without crash`() {
+    val controller = org.robolectric.Robolectric.buildActivity(MainActivity::class.java)
+    controller.setup()
+    val activity = controller.get()
+    org.junit.Assert.assertNotNull(activity)
+  }
 }
+

@@ -33,11 +33,20 @@ interface UserDao {
     @Query("UPDATE users SET isCurrentSession = 1 WHERE id = :userId")
     suspend fun setCurrentSession(userId: String)
 
+    @Transaction
+    suspend fun switchActiveSession(userId: String) {
+        clearCurrentSession()
+        setCurrentSession(userId)
+    }
+
     @Update
     suspend fun updateUser(user: UserEntity)
 
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUser(userId: String)
+
+    @Query("DELETE FROM users WHERE role != 'ADMIN'")
+    suspend fun clearNonAdminUsers()
 }
 
 @Dao
@@ -70,6 +79,9 @@ interface BookSetDao {
     @Query("DELETE FROM book_sets WHERE id = :id")
     suspend fun deleteBookSetById(id: String)
 
+    @Query("DELETE FROM book_sets WHERE id = :id")
+    suspend fun deleteBookSet(id: String)
+
     @Query("UPDATE book_sets SET isSaved = :isSaved WHERE id = :id")
     suspend fun updateSavedStatus(id: String, isSaved: Boolean)
 
@@ -78,6 +90,12 @@ interface BookSetDao {
 
     @Query("SELECT id FROM book_sets WHERE isSaved = 1")
     fun getSavedBookSetIdsFlow(): Flow<List<String>>
+
+    @Query("DELETE FROM book_sets")
+    suspend fun clearAllBookSets()
+
+    @Query("DELETE FROM included_books")
+    suspend fun clearAllIncludedBooks()
 }
 
 @Dao
@@ -93,6 +111,9 @@ interface MegaDealDao {
 
     @Query("UPDATE mega_deals SET status = :status WHERE dealId = :dealId")
     suspend fun updateMegaDealStatus(dealId: String, status: String)
+
+    @Query("DELETE FROM mega_deals")
+    suspend fun clearAllMegaDeals()
 }
 
 @Dao
@@ -123,6 +144,12 @@ interface ChatDao {
 
     @Query("UPDATE conversations SET unreadCount = 0 WHERE id = :convId")
     suspend fun markConversationRead(convId: String)
+
+    @Query("DELETE FROM conversations")
+    suspend fun clearAllConversations()
+
+    @Query("DELETE FROM chat_messages")
+    suspend fun clearAllMessages()
 }
 
 @Dao
@@ -141,4 +168,7 @@ interface NotificationDao {
 
     @Query("UPDATE notifications SET isRead = 1")
     suspend fun markAllAsRead()
+
+    @Query("DELETE FROM notifications")
+    suspend fun clearAllNotifications()
 }
