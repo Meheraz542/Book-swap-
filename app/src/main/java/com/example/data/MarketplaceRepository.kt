@@ -42,7 +42,7 @@ object MarketplaceRepository {
         college = "Feni Computer Institute",
         technology = Technology.CSE,
         currentSemester = Semester.SEM_3,
-        profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+        profilePhotoRes = null,
         role = "ADMIN",
         accountStatus = "ACTIVE"
     )
@@ -51,8 +51,8 @@ object MarketplaceRepository {
     private val _currentUser = MutableStateFlow(defaultAdminProfile)
     val currentUser: StateFlow<UserProfile> = _currentUser.asStateFlow()
 
-    // Logged in state: defaults to true so the user immediately sees the rich marketplace interface
-    private val _isLoggedIn = MutableStateFlow(true)
+    // Logged in state: defaults to false so the user is directed to login or sign-up immediately upon opening
+    private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
     // All Book Sets
@@ -102,12 +102,17 @@ object MarketplaceRepository {
             // Purge legacy demo seed data from Room DB if present
             cleanDemoDataFromDatabaseIfPresent(db)
 
+            // Direct users to login or sign-up page immediately upon opening
+            db.userDao().clearCurrentSession()
+
             // Collect real-time updates from Room DB
             launch {
                 db.userDao().getCurrentUserFlow().collect { userEntity ->
-                    if (userEntity != null) {
+                    if (userEntity != null && userEntity.isCurrentSession) {
                         _currentUser.value = userEntity.toDomain()
                         _isLoggedIn.value = true
+                    } else if (userEntity == null) {
+                        _isLoggedIn.value = false
                     }
                 }
             }

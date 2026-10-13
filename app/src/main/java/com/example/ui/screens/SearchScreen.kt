@@ -476,7 +476,7 @@ fun SearchScreen(
                     )
                 }
             } else {
-                items(filteredSets) { set ->
+                items(filteredSets, key = { it.id }, contentType = { "search_result" }) { set ->
                     SearchResultCard(
                         set = set,
                         onClick = { onNavigateToSetDetails(set) },

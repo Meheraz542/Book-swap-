@@ -87,57 +87,27 @@ fun Modifier.liquidGlass(
             drawRect(backgroundColor)
         }
 
-        // 2. INNER HIGHLIGHT (Top-Left 3D specular bevel)
-        val highlightHeight = (h * 0.45f).coerceAtLeast(4f)
+        // 2. High-performance unified 3D Specular Inner Bevel (streamlined to single shader pass)
         val effectiveHighlightAlpha = if (isPressed) innerHighlightColor.alpha * 0.4f else innerHighlightColor.alpha
+        val effectiveShadowAlpha = if (isPressed) (innerShadowColor.alpha * 1.4f).coerceAtMost(0.6f) else innerShadowColor.alpha
         drawRect(
             brush = Brush.verticalGradient(
-                colors = listOf(
-                    innerHighlightColor.copy(alpha = effectiveHighlightAlpha),
-                    Color.Transparent
-                ),
-                startY = 0f,
-                endY = highlightHeight
+                0.0f to innerHighlightColor.copy(alpha = effectiveHighlightAlpha),
+                0.35f to Color.Transparent,
+                0.70f to Color.Transparent,
+                1.0f to innerShadowColor.copy(alpha = effectiveShadowAlpha)
             )
         )
 
-        // 3. INNER SHADOW (Bottom/Inset Neumorphic depth bevel)
-        val shadowStart = (h * 0.45f).coerceAtLeast(0f)
-        val effectiveShadowAlpha = if (isPressed) (innerShadowColor.alpha * 1.5f).coerceAtMost(0.75f) else innerShadowColor.alpha
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    innerShadowColor.copy(alpha = effectiveShadowAlpha)
-                ),
-                startY = shadowStart,
-                endY = h
-            )
-        )
-
-        // 4. Subtle Left/Right inner curvature bevel
-        drawRect(
-            brush = Brush.horizontalGradient(
-                colors = listOf(
-                    innerHighlightColor.copy(alpha = effectiveHighlightAlpha * 0.35f),
-                    Color.Transparent,
-                    innerShadowColor.copy(alpha = effectiveShadowAlpha * 0.35f)
-                ),
-                startX = 0f,
-                endX = w
-            )
-        )
-
-        // 5. SPECULAR LIQUID GLASS REFLECTION SHEEN (Top pill shine highlight from image)
-        if (showTopSheen && h >= 22f && w >= 32f) {
-            val sheenHeight = (h * 0.34f).coerceIn(4f, 16f)
+        // 3. SPECULAR LIQUID GLASS REFLECTION SHEEN (Top pill shine highlight)
+        if (showTopSheen && h >= 26f && w >= 36f) {
+            val sheenHeight = (h * 0.32f).coerceIn(4f, 15f)
             val sheenWidth = w * 0.86f
             val left = (w - sheenWidth) / 2f
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = if (isPressed) 0.15f else 0.45f),
-                        Color.White.copy(alpha = if (isPressed) 0.04f else 0.12f),
+                        Color.White.copy(alpha = if (isPressed) 0.12f else 0.42f),
                         Color.Transparent
                     ),
                     startY = 2f,
@@ -153,7 +123,7 @@ fun Modifier.liquidGlass(
 
 /**
  * Ambient background backdrop that draws the soft studio lighting and chromatic caustics
- * (violet, cyan, and warm peach backlight bloom) seen in the Liquid Glass reference design.
+ * (violet, cyan, and warm peach backlight bloom) with optimized GPU fill-rate.
  */
 @Composable
 fun LiquidGlassBackdrop(
@@ -189,24 +159,6 @@ fun LiquidGlassBackdrop(
                         colors = listOf(CausticCyan, Color.Transparent),
                         center = Offset(w * 0.88f, h * 0.42f),
                         radius = w * 0.70f
-                    )
-                )
-
-                // Bottom-Left Diffuse Peach/Amber Caustic Bloom
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(CausticPeach, Color.Transparent),
-                        center = Offset(w * 0.18f, h * 0.82f),
-                        radius = w * 0.60f
-                    )
-                )
-
-                // Bottom-Right Diffuse Indigo/Blue Bloom
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(CausticBlue, Color.Transparent),
-                        center = Offset(w * 0.85f, h * 0.90f),
-                        radius = w * 0.55f
                     )
                 )
             },

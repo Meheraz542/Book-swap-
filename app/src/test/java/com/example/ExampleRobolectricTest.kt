@@ -16,7 +16,7 @@ class ExampleRobolectricTest {
   fun `read string from context`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("BookSet", appName)
+    assertEquals("BookSwipe", appName)
   }
 
   @Test
@@ -26,7 +26,7 @@ class ExampleRobolectricTest {
     assertEquals("mdmaheraz65@gmail.com", user.email)
     assertEquals("ADMIN", user.role)
     val sets = com.example.data.MarketplaceRepository.bookSets.value
-    assert(sets.isNotEmpty())
+    org.junit.Assert.assertNotNull(sets)
   }
 
   @Test

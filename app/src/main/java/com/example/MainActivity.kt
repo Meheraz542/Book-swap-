@@ -11,10 +11,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.*
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.data.MarketplaceRepository
@@ -64,9 +61,7 @@ fun MainApp() {
                 onAuthSuccess = {
                     // User authenticated, main app will display smoothly
                 },
-                onDismiss = {
-                    MarketplaceRepository.restoreSession()
-                }
+                onDismiss = null
             )
         } else {
             MainAppContent()
@@ -84,8 +79,8 @@ private fun MainAppContent() {
         conversations.sumOf { it.unreadCount }
     }
 
-    val coroutineScope = rememberCoroutineScope()
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 5 })
+    // Active bottom navigation tab
+    var currentTab by remember { mutableStateOf(BottomNavTab.HOME) }
 
     // Navigation state stack (Main vs sub-screens)
     var currentDestination by remember { mutableStateOf<AppDestination>(AppDestination.Main) }
@@ -94,51 +89,21 @@ private fun MainAppContent() {
     var searchTechFilter by remember { mutableStateOf<Technology?>(null) }
     var searchSemFilter by remember { mutableStateOf<Semester?>(null) }
 
-    // Active bottom navigation tab directly derived from the pager's target or current page
-    val currentTab = when (pagerState.currentPage) {
-        0 -> BottomNavTab.HOME
-        1 -> BottomNavTab.SEARCH
-        2 -> BottomNavTab.SELL
-        3 -> BottomNavTab.INBOX
-        4 -> BottomNavTab.PROFILE
-        else -> BottomNavTab.HOME
-    }
-
-    // Function to smoothly animate between tabs with iOS liquid spring physics
+    // Fast, responsive 60fps/120fps tab navigation
     val onSelectTab: (BottomNavTab) -> Unit = { tab ->
-        val targetPage = when (tab) {
-            BottomNavTab.HOME -> 0
-            BottomNavTab.SEARCH -> 1
-            BottomNavTab.SELL -> 2
-            BottomNavTab.INBOX -> 3
-            BottomNavTab.PROFILE -> 4
-        }
         if (tab != BottomNavTab.SEARCH) {
             searchTechFilter = null
             searchSemFilter = null
         }
-        coroutineScope.launch {
-            pagerState.animateScrollToPage(
-                page = targetPage,
-                animationSpec = spring(
-                    dampingRatio = 0.85f,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
-        }
+        currentTab = tab
     }
 
     // Back handling
-    BackHandler(enabled = currentDestination !is AppDestination.Main || pagerState.currentPage != 0) {
+    BackHandler(enabled = currentDestination !is AppDestination.Main || currentTab != BottomNavTab.HOME) {
         if (currentDestination !is AppDestination.Main) {
             currentDestination = AppDestination.Main
-        } else if (pagerState.currentPage != 0) {
-            coroutineScope.launch {
-                pagerState.animateScrollToPage(
-                    page = 0,
-                    animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                )
-            }
+        } else if (currentTab != BottomNavTab.HOME) {
+            currentTab = BottomNavTab.HOME
         }
     }
 
@@ -183,13 +148,16 @@ private fun MainAppContent() {
         ) { dest ->
             when (dest) {
                 is AppDestination.Main -> {
-                    HorizontalPager(
-                        state = pagerState,
-                        userScrollEnabled = false,
+                    AnimatedContent(
+                        targetState = currentTab,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(160)) togetherWith fadeOut(animationSpec = tween(120))
+                        },
+                        label = "tabTransition",
                         modifier = Modifier.fillMaxSize()
-                    ) { page ->
-                        when (page) {
-                            0 -> {
+                    ) { tab ->
+                        when (tab) {
+                            BottomNavTab.HOME -> {
                                 HomeScreen(
                                     onNavigateToSearch = { tech, sem ->
                                         searchTechFilter = tech
@@ -210,7 +178,7 @@ private fun MainAppContent() {
                                     }
                                 )
                             }
-                            1 -> {
+                            BottomNavTab.SEARCH -> {
                                 SearchScreen(
                                     initialTechnology = searchTechFilter,
                                     initialSemester = searchSemFilter,
@@ -222,7 +190,7 @@ private fun MainAppContent() {
                                     }
                                 )
                             }
-                            2 -> {
+                            BottomNavTab.SELL -> {
                                 SellScreen(
                                     onPublishSuccess = { newSet ->
                                         currentDestination = AppDestination.SetDetails(newSet)
@@ -232,7 +200,7 @@ private fun MainAppContent() {
                                     }
                                 )
                             }
-                            3 -> {
+                            BottomNavTab.INBOX -> {
                                 InboxScreen(
                                     onNavigateToChat = { conv ->
                                         currentDestination = AppDestination.Chat(conv.id)
@@ -242,7 +210,7 @@ private fun MainAppContent() {
                                     }
                                 )
                             }
-                            4 -> {
+                            BottomNavTab.PROFILE -> {
                                 ProfileScreen(
                                     onNavigateToSetDetails = { set ->
                                         currentDestination = AppDestination.SetDetails(set)

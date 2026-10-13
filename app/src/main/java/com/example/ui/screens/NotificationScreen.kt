@@ -102,7 +102,7 @@ fun NotificationScreen(
                     }
                 }
             } else {
-                items(notifications) { notif ->
+                items(notifications, key = { it.id }, contentType = { "notification" }) { notif ->
                     NotificationCard(
                         notif = notif,
                         onClick = {

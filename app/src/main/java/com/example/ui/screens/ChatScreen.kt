@@ -354,7 +354,7 @@ fun ChatScreen(
             }
 
             // Chat Messages list
-            items(conversation.messages) { msg ->
+            items(conversation.messages, key = { it.id }, contentType = { "chat_msg" }) { msg ->
                 ChatBubble(message = msg)
             }
         }

@@ -1121,29 +1121,43 @@ private fun HomeHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Hello,",
-                    fontSize = 14.sp,
-                    color = TextSecondary
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Black,
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onAvatarClick() }
+            ) {
+                Image(
+                    painter = painterResource(id = com.example.R.drawable.ic_bookswipe_logo),
+                    contentDescription = "BookSwipe Logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
                 Text(
-                    text = userName,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    text = "BookSwipe",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PrimaryPurple,
+                    letterSpacing = 0.3.sp
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "👋", fontSize = 20.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Hello, $userName",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "👋", fontSize = 16.sp)
+                }
             }
-            Text(
-                text = "Good books build a better future 📖",
-                fontSize = 13.sp,
-                color = TextMuted
-            )
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {

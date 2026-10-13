@@ -409,7 +409,7 @@ fun ProfileScreen(
                     Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
                     ProfileMenuRow(icon = Icons.Outlined.HelpOutline, title = "Help & Support")
                     Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
-                    ProfileMenuRow(icon = Icons.Outlined.Info, title = "About BookSet v1.0.0")
+                    ProfileMenuRow(icon = Icons.Outlined.Info, title = "About BookSwipe v1.0.0")
                 }
             }
 
@@ -569,8 +569,8 @@ fun ProfileScreen(
         var isRegisterTab by remember { mutableStateOf(false) }
 
         // Sign In State
-        var signInEmail by remember { mutableStateOf("mdmaheraz65@gmail.com") }
-        var signInPassword by remember { mutableStateOf("polytechnic123") }
+        var signInEmail by remember { mutableStateOf("") }
+        var signInPassword by remember { mutableStateOf("") }
         var signInPasswordVisible by remember { mutableStateOf(false) }
 
         // Register State

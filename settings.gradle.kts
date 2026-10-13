@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "BookSet"
+rootProject.name = "BookSwipe"
 
 include(":app")

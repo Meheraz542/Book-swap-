@@ -213,7 +213,7 @@ fun InboxScreen(
                     }
                 }
             } else {
-                items(filteredConversations) { conv ->
+                items(filteredConversations, key = { it.id }, contentType = { "conversation" }) { conv ->
                     ConversationItem(
                         conversation = conv,
                         onClick = { onNavigateToChat(conv) }

@@ -17,12 +17,19 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
@@ -40,6 +47,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -82,9 +90,9 @@ fun AuthScreen(
     val context = LocalContext.current
     var isRegisterTab by remember { mutableStateOf(false) }
 
-    // Pre-filled Sign In State for fast access
-    var signInEmail by remember { mutableStateOf("mdmaheraz65@gmail.com") }
-    var signInPassword by remember { mutableStateOf("polytechnic123") }
+    // Sign In State - blank by default without auto-fill
+    var signInEmail by remember { mutableStateOf("") }
+    var signInPassword by remember { mutableStateOf("") }
     var signInPasswordVisible by remember { mutableStateOf(false) }
 
     // Sign Up State
@@ -118,6 +126,26 @@ fun AuthScreen(
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
+    val authUiState by viewModel.uiState.collectAsState()
+    LaunchedEffect(authUiState) {
+        when (val state = authUiState) {
+            is AuthUiState.Error -> {
+                isLoading = false
+                errorMessage = state.message
+            }
+            is AuthUiState.Success -> {
+                isLoading = false
+                onAuthSuccess()
+            }
+            is AuthUiState.Idle -> {
+                isLoading = false
+            }
+            is AuthUiState.Loading -> {
+                isLoading = true
+            }
+        }
+    }
+
     // Countdown Timer for OTP
     LaunchedEffect(isVerifyingOtp, otpCountdown) {
         if (isVerifyingOtp && otpCountdown > 0) {
@@ -139,6 +167,7 @@ fun AuthScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .imePadding()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 22.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -169,31 +198,29 @@ fun AuthScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // App Logo Emblem - Clean Circular Badge
+            // App Logo Emblem - Official BookSwipe Squircle Logo
             Surface(
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.95f),
-                border = BorderStroke(1.5.dp, PrimaryBlue.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.Black,
                 shadowElevation = 8.dp,
                 modifier = Modifier
-                    .size(76.dp)
-                    .shadow(8.dp, CircleShape, ambientColor = PrimaryBlueGlow, spotColor = PrimaryBlueGlow)
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .shadow(8.dp, RoundedCornerShape(22.dp), ambientColor = PrimaryBlueGlow, spotColor = PrimaryBlueGlow)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.AutoStories,
-                        contentDescription = "BookSet Logo",
-                        tint = PrimaryBlue,
-                        modifier = Modifier.size(38.dp)
-                    )
-                }
+                Image(
+                    painter = painterResource(id = R.drawable.ic_bookswipe_logo),
+                    contentDescription = "BookSwipe Logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             // App Brand Name & Tagline
             Text(
-                text = "BookSet",
+                text = "BookSwipe",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = TextPrimary,
@@ -370,13 +397,8 @@ fun AuthScreen(
                         }
                     }
 
-                    // Form Content Switcher
-                    AnimatedContent(
-                        targetState = isRegisterTab,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "authFormTransition"
-                    ) { isRegister ->
-                        if (!isRegister) {
+                    // Form Content (direct conditional prevents Compose IME input detachment)
+                    if (!isRegisterTab) {
                             // SIGN IN TAB
                             SignInForm(
                                 email = signInEmail,
@@ -522,7 +544,6 @@ fun AuthScreen(
                             )
                         }
                     }
-                }
             }
         }
 
@@ -633,6 +654,8 @@ private fun SignInForm(
     onGoogleSignIn: () -> Unit,
     onSwitchToRegister: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -642,7 +665,6 @@ private fun SignInForm(
             value = email,
             onValueChange = onEmailChange,
             label = { Text("Email Address") },
-            placeholder = { Text("e.g. mdmaheraz65@gmail.com") },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Email,
@@ -653,7 +675,10 @@ private fun SignInForm(
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
-                autoCorrectEnabled = false
+                imeAction = ImeAction.Next
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = { focusManager.moveFocus(FocusDirection.Down) }
             ),
             shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
@@ -692,7 +717,13 @@ private fun SignInForm(
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
-                autoCorrectEnabled = false
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    focusManager.clearFocus()
+                    onSignIn()
+                }
             ),
             shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
@@ -705,6 +736,30 @@ private fun SignInForm(
                 .fillMaxWidth()
                 .testTag("input_signin_password")
         )
+
+        // 1-Tap Quick Fill option for fast testing
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Surface(
+                onClick = {
+                    onEmailChange("mdmaheraz65@gmail.com")
+                    onPasswordChange("polytechnic123")
+                },
+                shape = RoundedCornerShape(8.dp),
+                color = PrimaryBlueLight,
+                modifier = Modifier.padding(top = 2.dp)
+            ) {
+                Text(
+                    text = "⚡ Quick Fill Demo",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = PrimaryBlue,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(2.dp))
 
