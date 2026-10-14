@@ -167,7 +167,6 @@ fun AuthScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .imePadding()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 22.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -665,6 +664,7 @@ private fun SignInForm(
             value = email,
             onValueChange = onEmailChange,
             label = { Text("Email Address") },
+            enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Email,
@@ -675,7 +675,8 @@ private fun SignInForm(
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
-                imeAction = ImeAction.Next
+                imeAction = ImeAction.Next,
+                autoCorrectEnabled = false
             ),
             keyboardActions = KeyboardActions(
                 onNext = { focusManager.moveFocus(FocusDirection.Down) }
@@ -697,6 +698,7 @@ private fun SignInForm(
             value = password,
             onValueChange = onPasswordChange,
             label = { Text("Password") },
+            enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Lock,
@@ -717,7 +719,8 @@ private fun SignInForm(
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
+                imeAction = ImeAction.Done,
+                autoCorrectEnabled = false
             ),
             keyboardActions = KeyboardActions(
                 onDone = {
@@ -736,30 +739,6 @@ private fun SignInForm(
                 .fillMaxWidth()
                 .testTag("input_signin_password")
         )
-
-        // 1-Tap Quick Fill option for fast testing
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Surface(
-                onClick = {
-                    onEmailChange("mdmaheraz65@gmail.com")
-                    onPasswordChange("polytechnic123")
-                },
-                shape = RoundedCornerShape(8.dp),
-                color = PrimaryBlueLight,
-                modifier = Modifier.padding(top = 2.dp)
-            ) {
-                Text(
-                    text = "⚡ Quick Fill Demo",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = PrimaryBlue,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-        }
 
         Spacer(modifier = Modifier.height(2.dp))
 
@@ -866,7 +845,7 @@ private fun SignUpForm(
             value = name,
             onValueChange = onNameChange,
             label = { Text("Full Name") },
-            placeholder = { Text("e.g. Maheraz Rahim") },
+            enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Person,
@@ -892,7 +871,7 @@ private fun SignUpForm(
             value = email,
             onValueChange = onEmailChange,
             label = { Text("Email Address") },
-            placeholder = { Text("student@gmail.com") },
+            enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Email,
@@ -919,6 +898,7 @@ private fun SignUpForm(
             value = password,
             onValueChange = onPasswordChange,
             label = { Text("Password (at least 4 characters)") },
+            enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Lock,
@@ -955,7 +935,7 @@ private fun SignUpForm(
             value = phone,
             onValueChange = onPhoneChange,
             label = { Text("Mobile Phone Number") },
-            placeholder = { Text("01712-XXXXXX") },
+            enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Phone,

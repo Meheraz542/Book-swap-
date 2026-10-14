@@ -19,12 +19,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
+import android.util.Log
+import com.example.data.remote.FirebaseFirestoreManager
 
 object MarketplaceRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var database: AppDatabase? = null
     private var authManager: AuthManager? = null
     private var emailOtpManager: EmailOtpManager? = null
+    var firestoreManager: FirebaseFirestoreManager? = null
 
     // Real-time Gmail OTP State
     private val _latestOtpCode = MutableStateFlow<String?>(null)
@@ -91,9 +94,55 @@ object MarketplaceRepository {
     fun initialize(context: Context) {
         val db = AppDatabase.getInstance(context)
         database = db
-        val auth = AuthManager(context)
+        val firestore = FirebaseFirestoreManager(context)
+        firestoreManager = firestore
+        val auth = AuthManager(context, firestore)
         authManager = auth
         emailOtpManager = EmailOtpManager(context.applicationContext)
+
+        // Real-Time Cloud Firestore Listeners for cross-device synchronization
+        try {
+            // Public catalog listeners (allowed by firestore.rules)
+            firestore.listenAllBookSets { firestoreSets ->
+                _bookSets.value = firestoreSets
+                Log.d("MarketplaceRepo", "Synced ${firestoreSets.size} bookSets from Firestore in real-time")
+            }
+
+            firestore.listenAllMegaDeals { firestoreDeals ->
+                _megaDeals.value = firestoreDeals
+            }
+        } catch (e: Exception) {
+            Log.e("MarketplaceRepo", "Failed to start public Firestore listeners", e)
+        }
+
+        // Authenticated Firestore Listeners - attached when Firebase Auth user is present
+        try {
+            val firebaseAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
+            var conversationsReg: com.google.firebase.firestore.ListenerRegistration? = null
+            var usersReg: com.google.firebase.firestore.ListenerRegistration? = null
+
+            firebaseAuth.addAuthStateListener { auth ->
+                val user = auth.currentUser
+                conversationsReg?.remove()
+                conversationsReg = null
+                usersReg?.remove()
+                usersReg = null
+
+                if (user != null) {
+                    conversationsReg = firestore.listenConversations(user.uid) { firestoreConvs ->
+                        _conversations.value = firestoreConvs
+                    }
+                    usersReg = firestore.listenAllUsers { firestoreUsers ->
+                        if (firestoreUsers.isNotEmpty()) {
+                            _allUsers.value = firestoreUsers
+                            Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MarketplaceRepo", "Failed to attach auth state listener", e)
+        }
 
         scope.launch(Dispatchers.IO) {
             // Seed Super Admin if empty
@@ -251,6 +300,16 @@ object MarketplaceRepository {
             }
         }
 
+        firestoreManager?.let { fs ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    fs.publishBookSet(newSet)
+                } catch (e: Exception) {
+                    Log.e("MarketplaceRepo", "Failed to sync bookSet to Firestore", e)
+                }
+            }
+        }
+
         return newSet
     }
 
@@ -283,6 +342,16 @@ object MarketplaceRepository {
                 db.chatDao().updateConversationSnippet(conversationId, text, "Just now")
             }
         }
+
+        firestoreManager?.let { fs ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    fs.sendMessage(conversationId, newMsg)
+                } catch (e: Exception) {
+                    Log.e("MarketplaceRepo", "Failed to sync message to Firestore", e)
+                }
+            }
+        }
     }
 
     // Start or get conversation for a book set
@@ -305,7 +374,7 @@ object MarketplaceRepository {
             sellerId = set.sellerId,
             otherUserName = set.sellerName,
             otherUserCollege = set.sellerCollege,
-            otherUserAvatarRes = R.drawable.avatar_rahim_1789677826412,
+            otherUserAvatarRes = null,
             setId = set.id,
             setTitle = set.title,
             setPrice = set.totalPrice,
@@ -321,6 +390,17 @@ object MarketplaceRepository {
             scope.launch(Dispatchers.IO) {
                 db.chatDao().insertConversation(newConv.toEntity())
                 db.chatDao().insertMessage(initialMsg.toEntity(newId))
+            }
+        }
+
+        firestoreManager?.let { fs ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    fs.saveConversation(newConv)
+                    fs.sendMessage(newId, initialMsg)
+                } catch (e: Exception) {
+                    Log.e("MarketplaceRepo", "Failed to sync new conversation to Firestore", e)
+                }
             }
         }
 
@@ -811,6 +891,7 @@ object MarketplaceRepository {
         }
         scope.launch(Dispatchers.IO) {
             database?.bookSetDao()?.updateBookSetStatus(setId, SetStatus.REMOVED.name)
+            firestoreManager?.updateBookSetStatus(setId, SetStatus.REMOVED)
         }
     }
 
@@ -821,6 +902,7 @@ object MarketplaceRepository {
         }
         scope.launch(Dispatchers.IO) {
             database?.bookSetDao()?.updateBookSetStatus(setId, SetStatus.AVAILABLE.name)
+            firestoreManager?.updateBookSetStatus(setId, SetStatus.AVAILABLE)
         }
     }
 
@@ -831,6 +913,7 @@ object MarketplaceRepository {
         }
         scope.launch(Dispatchers.IO) {
             database?.bookSetDao()?.deleteBookSet(setId)
+            firestoreManager?.deleteBookSet(setId)
         }
     }
 
@@ -846,6 +929,7 @@ object MarketplaceRepository {
                     db.userDao().updateUser(user.copy(accountStatus = "BLOCKED"))
                 }
             }
+            firestoreManager?.updateUserAccountStatus(userId, "BLOCKED")
         }
     }
 
@@ -856,6 +940,7 @@ object MarketplaceRepository {
         }
         scope.launch(Dispatchers.IO) {
             database?.userDao()?.deleteUser(userId)
+            firestoreManager?.deleteUser(userId)
         }
     }
 

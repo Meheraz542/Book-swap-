@@ -88,7 +88,7 @@ The application features a single-activity architecture (`MainActivity.kt`) mana
 #### 2.1 Authentication Screen (`AuthScreen.kt`)
 - **Entry Point:** Mandatory initial destination immediately upon opening the app (`MarketplaceRepository.isLoggedIn` defaults to `false` and `onDismiss = null`). Users must authenticate before accessing the home screen.
 - **Layout Structure:**
-  - Top: Header with app branding ("BookSet"), Bengali subtitle ("পলিটেকনিক বুক এক্সচেঞ্জ"), and campus community tag.
+  - Top: Header with app branding ("BookSwipe"), Bengali subtitle ("পলিটেকনিক বুক এক্সচেঞ্জ"), and campus community tag.
   - Segmented Tab Switcher: "লগইন" (Sign In) vs. "নতুন একাউন্ট" (Sign Up).
 - **Sign In Tab:**
   - Input: Email (`testTag("input_signin_email")`) and Password (`testTag("input_signin_password")`) with visibility toggle. Blank by default without auto-fill or suggestions.

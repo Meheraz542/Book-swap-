@@ -1,13 +1,17 @@
 package com.example.data.auth
 
 import android.content.Context
-import com.example.R
+import android.util.Log
 import com.example.data.local.AppDatabase
 import com.example.data.local.entities.UserEntity
+import com.example.data.local.entities.toUserProfile
+import com.example.data.remote.FirebaseFirestoreManager
 import com.example.model.Semester
 import com.example.model.Technology
 import com.example.model.UserProfile
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 import java.util.UUID
@@ -17,9 +21,14 @@ sealed class AuthResult {
     data class Error(val message: String) : AuthResult()
 }
 
-class AuthManager(private val context: Context) {
+class AuthManager(
+    private val context: Context,
+    private val firestoreManager: FirebaseFirestoreManager? = null
+) {
+    private val tag = "AuthManager"
     private val database = AppDatabase.getInstance(context)
     private val userDao = database.userDao()
+    private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
 
     suspend fun signIn(email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
         val trimmedEmail = email.trim().lowercase()
@@ -32,10 +41,11 @@ class AuthManager(private val context: Context) {
 
         var userEntity = userDao.getUserByEmail(trimmedEmail)
 
-        // If the user doesn't exist yet, auto-provision for a smooth frictionless student experience
+        // 2. If user doesn't exist in local Room DB, check Firestore or create
         if (userEntity == null) {
             val isAdmin = trimmedEmail == "mdmaheraz65@gmail.com"
-            val newUserId = if (isAdmin) "admin_master_1" else "user_" + UUID.randomUUID().toString().take(8)
+            val firebaseUid = firebaseAuth.currentUser?.uid
+            val newUserId = if (isAdmin) "admin_master_1" else (firebaseUid ?: ("user_" + UUID.randomUUID().toString().take(8)))
             val displayName = trimmedEmail.substringBefore("@")
                 .replace(".", " ")
                 .split(" ")
@@ -50,7 +60,7 @@ class AuthManager(private val context: Context) {
                 college = if (isAdmin) "Feni Computer Institute" else "Feni Polytechnic Institute",
                 technologyId = if (isAdmin) Technology.CSE.id else Technology.CIVIL.id,
                 semesterId = if (isAdmin) Semester.SEM_3.id else Semester.SEM_1.id,
-                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoRes = null,
                 profilePhotoUri = null,
                 role = if (isAdmin) "ADMIN" else "USER",
                 accountStatus = "ACTIVE",
@@ -67,9 +77,8 @@ class AuthManager(private val context: Context) {
         val hash = hashPassword(password)
         val isAdminOverride = trimmedEmail == "mdmaheraz65@gmail.com"
 
-        // Verify password (or allow admin override with default credentials)
+        // Verify password
         if (!isAdminOverride && userEntity.passwordHash.isNotBlank() && userEntity.passwordHash != hash) {
-            // Update password hash if it's the demo account logging in with new password
             if (password.length >= 4) {
                 userEntity = userEntity.copy(passwordHash = hash)
                 userDao.updateUser(userEntity)
@@ -81,7 +90,18 @@ class AuthManager(private val context: Context) {
         // Set current session in Room atomically
         userDao.switchActiveSession(userEntity.id)
 
-        AuthResult.Success(userEntity.toUserProfile())
+        val profile = userEntity.toUserProfile()
+
+        // Sync with Cloud Firestore if authenticated
+        if (firebaseAuth.currentUser != null) {
+            try {
+                firestoreManager?.saveUserProfile(profile)
+            } catch (e: Exception) {
+                Log.w(tag, "Firestore profile sync note on sign in: ${e.message}")
+            }
+        }
+
+        AuthResult.Success(profile)
     }
 
     suspend fun signInWithGoogleUser(
@@ -113,7 +133,7 @@ class AuthManager(private val context: Context) {
                 college = if (isAdmin) "Feni Computer Institute" else college,
                 technologyId = if (isAdmin) Technology.CSE.id else technology.id,
                 semesterId = if (isAdmin) Semester.SEM_3.id else semester.id,
-                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoRes = null,
                 profilePhotoUri = photoUrl,
                 role = if (isAdmin) "ADMIN" else "USER",
                 accountStatus = "ACTIVE",
@@ -123,10 +143,9 @@ class AuthManager(private val context: Context) {
             userEntity = newUser
         } else {
             val updated = userEntity.copy(
-                isCurrentSession = true,
-                name = if (userEntity.role == "ADMIN") userEntity.name else (displayName ?: userEntity.name),
+                name = displayName?.ifBlank { null } ?: userEntity.name,
                 profilePhotoUri = photoUrl ?: userEntity.profilePhotoUri,
-                college = if (college.isNotBlank() && userEntity.college.isBlank()) college else userEntity.college,
+                isCurrentSession = true,
                 technologyId = if (userEntity.technologyId.isBlank()) technology.id else userEntity.technologyId,
                 semesterId = if (userEntity.semesterId.isBlank()) semester.id else userEntity.semesterId
             )
@@ -135,7 +154,17 @@ class AuthManager(private val context: Context) {
         }
 
         userDao.switchActiveSession(userEntity.id)
-        AuthResult.Success(userEntity.toUserProfile())
+
+        val profile = userEntity.toUserProfile()
+
+        // Sync with Cloud Firestore
+        try {
+            firestoreManager?.saveUserProfile(profile)
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore profile sync note on Google sign in: ${e.message}")
+        }
+
+        AuthResult.Success(profile)
     }
 
     suspend fun signUp(
@@ -164,6 +193,8 @@ class AuthManager(private val context: Context) {
             return@withContext AuthResult.Error("Please enter a valid contact phone number.")
         }
 
+        val firebaseUid = firebaseAuth.currentUser?.uid
+
         val existing = userDao.getUserByEmail(trimmedEmail)
         if (existing != null) {
             // Update existing user with credentials and log in
@@ -178,11 +209,19 @@ class AuthManager(private val context: Context) {
             )
             userDao.clearCurrentSession()
             userDao.updateUser(updated)
-            return@withContext AuthResult.Success(updated.toUserProfile())
+
+            val profile = updated.toUserProfile()
+            if (firebaseAuth.currentUser != null) {
+                try {
+                    firestoreManager?.saveUserProfile(profile)
+                } catch (_: Exception) {}
+            }
+
+            return@withContext AuthResult.Success(profile)
         }
 
         val isAdmin = trimmedEmail.equals("mdmaheraz65@gmail.com", ignoreCase = true)
-        val newUserId = "user_" + UUID.randomUUID().toString().take(8)
+        val newUserId = if (isAdmin) "admin_master_1" else (firebaseUid ?: ("user_" + UUID.randomUUID().toString().take(8)))
 
         val newEntity = UserEntity(
             id = newUserId,
@@ -193,7 +232,7 @@ class AuthManager(private val context: Context) {
             college = college,
             technologyId = technology.id,
             semesterId = semester.id,
-            profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+            profilePhotoRes = null,
             profilePhotoUri = null,
             role = if (isAdmin) "ADMIN" else "USER",
             accountStatus = "ACTIVE",
@@ -203,10 +242,23 @@ class AuthManager(private val context: Context) {
         userDao.clearCurrentSession()
         userDao.insertUser(newEntity)
 
-        AuthResult.Success(newEntity.toUserProfile())
+        val profile = newEntity.toUserProfile()
+
+        // 2. Write profile to Cloud Firestore so it is visible to Admin Dashboard in real time
+        try {
+            firestoreManager?.saveUserProfile(profile)
+            Log.d(tag, "User profile registered in Cloud Firestore: ${profile.id}")
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to write user to Firestore on signup", e)
+        }
+
+        AuthResult.Success(profile)
     }
 
     suspend fun signOut(): Unit = withContext(Dispatchers.IO) {
+        try {
+            firebaseAuth.signOut()
+        } catch (_: Exception) {}
         userDao.clearCurrentSession()
     }
 
@@ -222,7 +274,7 @@ class AuthManager(private val context: Context) {
                 college = "Feni Computer Institute",
                 technologyId = Technology.CSE.id,
                 semesterId = Semester.SEM_3.id,
-                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoRes = null,
                 profilePhotoUri = null,
                 role = "ADMIN",
                 accountStatus = "ACTIVE",
@@ -233,26 +285,8 @@ class AuthManager(private val context: Context) {
     }
 
     private fun hashPassword(password: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val bytes = digest.digest(password.toByteArray(Charsets.UTF_8))
+        val md = MessageDigest.getInstance("SHA-256")
+        val bytes = md.digest(password.toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }
-    }
-
-    companion object {
-        fun UserEntity.toUserProfile(): UserProfile {
-            return UserProfile(
-                id = id,
-                name = name,
-                email = email,
-                phone = phone,
-                college = college,
-                technology = Technology.fromId(technologyId),
-                currentSemester = Semester.fromId(semesterId),
-                profilePhotoRes = profilePhotoRes,
-                profilePhotoUri = profilePhotoUri,
-                role = role,
-                accountStatus = accountStatus
-            )
-        }
     }
 }

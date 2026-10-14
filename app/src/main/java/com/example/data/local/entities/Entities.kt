@@ -6,6 +6,9 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
+import com.example.model.UserProfile
+import com.example.model.Technology
+import com.example.model.Semester
 
 @Entity(tableName = "users")
 data class UserEntity(
@@ -141,3 +144,21 @@ data class NotificationEntity(
     val relatedDealId: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+fun UserEntity.toUserProfile(): UserProfile {
+    return UserProfile(
+        id = id,
+        name = name,
+        email = email,
+        phone = phone,
+        college = college,
+        technology = Technology.fromId(technologyId),
+        currentSemester = Semester.fromId(semesterId),
+        profilePhotoRes = profilePhotoRes,
+        profilePhotoUri = profilePhotoUri,
+        role = role,
+        accountStatus = accountStatus
+    )
+}
+
+fun UserEntity.toDomain(): UserProfile = toUserProfile()

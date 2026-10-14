@@ -34,9 +34,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.net.Uri
@@ -77,6 +79,9 @@ fun ProfileScreen(
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
     var showLoginDialog by remember { mutableStateOf(false) }
+    var showAdminPinDialog by remember { mutableStateOf(false) }
+    var adminPinInput by remember { mutableStateOf("") }
+    var adminPinError by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -399,7 +404,11 @@ fun ProfileScreen(
                         ProfileMenuRow(
                             icon = Icons.Outlined.AdminPanelSettings,
                             title = "Admin Control Panel",
-                            onClick = onNavigateToAdminPanel
+                            onClick = {
+                                adminPinInput = ""
+                                adminPinError = null
+                                showAdminPinDialog = true
+                            }
                         )
                         Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
                     }
@@ -554,6 +563,106 @@ fun ProfileScreen(
             dismissButton = {
                 OutlinedButton(
                     onClick = { showLogoutConfirmDialog = false },
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = Color.White
+        )
+    }
+
+    // Admin PIN Verification Dialog
+    if (showAdminPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showAdminPinDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.AdminPanelSettings,
+                    contentDescription = null,
+                    tint = PrimaryPurple,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Admin Security PIN",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Enter your secret Admin PIN or Password to access the moderation console.",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+
+                    OutlinedTextField(
+                        value = adminPinInput,
+                        onValueChange = {
+                            adminPinInput = it
+                            adminPinError = null
+                        },
+                        label = { Text("Admin PIN / Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                            autoCorrect = false
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                val pin = adminPinInput.trim()
+                                if (pin == "1234" || pin == "polytechnic123" || pin == "admin123" || pin == "admin") {
+                                    showAdminPinDialog = false
+                                    onNavigateToAdminPanel()
+                                } else {
+                                    adminPinError = "Incorrect Admin PIN. Access denied."
+                                }
+                            }
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("input_admin_pin")
+                    )
+
+                    if (adminPinError != null) {
+                        Text(
+                            text = adminPinError ?: "",
+                            color = Color(0xFFDC2626),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val pin = adminPinInput.trim()
+                        if (pin == "1234" || pin == "polytechnic123" || pin == "admin123" || pin == "admin") {
+                            showAdminPinDialog = false
+                            onNavigateToAdminPanel()
+                        } else {
+                            adminPinError = "Incorrect Admin PIN. Access denied."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.testTag("btn_unlock_admin")
+                ) {
+                    Text("Unlock Panel", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showAdminPinDialog = false },
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("Cancel", color = TextSecondary)
@@ -803,7 +912,6 @@ fun ProfileScreen(
                             value = regName,
                             onValueChange = { regName = it; authError = null },
                             label = { Text("Full Name") },
-                            placeholder = { Text("e.g. Maheraz Rahim") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().testTag("input_reg_name"),
                             shape = RoundedCornerShape(14.dp)
@@ -813,7 +921,6 @@ fun ProfileScreen(
                             value = regEmail,
                             onValueChange = { regEmail = it; authError = null },
                             label = { Text("Email Address") },
-                            placeholder = { Text("student@gmail.com") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrect = false),
                             modifier = Modifier.fillMaxWidth().testTag("input_reg_email"),
@@ -824,7 +931,6 @@ fun ProfileScreen(
                             value = regPassword,
                             onValueChange = { regPassword = it; authError = null },
                             label = { Text("Password") },
-                            placeholder = { Text("At least 6 characters") },
                             singleLine = true,
                             visualTransformation = if (regPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrect = false),
@@ -844,7 +950,6 @@ fun ProfileScreen(
                             value = regPhone,
                             onValueChange = { regPhone = it; authError = null },
                             label = { Text("Phone Number") },
-                            placeholder = { Text("01712-XXXXXX") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().testTag("input_reg_phone"),
                             shape = RoundedCornerShape(14.dp)

@@ -49,12 +49,10 @@ class MainActivity : ComponentActivity() {
 fun MainApp() {
     val isLoggedIn by MarketplaceRepository.isLoggedIn.collectAsState()
 
-    AnimatedContent(
+    Crossfade(
         targetState = isLoggedIn,
-        transitionSpec = {
-            fadeIn(animationSpec = tween(350)) togetherWith fadeOut(animationSpec = tween(250))
-        },
-        label = "authTransition"
+        animationSpec = tween(300),
+        label = "authCrossfade"
     ) { loggedIn ->
         if (!loggedIn) {
             AuthScreen(
