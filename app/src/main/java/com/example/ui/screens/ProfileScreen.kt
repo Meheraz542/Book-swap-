@@ -399,16 +399,12 @@ fun ProfileScreen(
             item {
                 Spacer(modifier = Modifier.height(6.dp))
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    // Admin Control Panel - ONLY visible when logged in as Super Admin
+                    // Admin Control Panel - directly accessible for Super Admin / Admin role
                     if (currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true) || currentUser.role == "ADMIN") {
                         ProfileMenuRow(
                             icon = Icons.Outlined.AdminPanelSettings,
                             title = "Admin Control Panel",
-                            onClick = {
-                                adminPinInput = ""
-                                adminPinError = null
-                                showAdminPinDialog = true
-                            }
+                            onClick = onNavigateToAdminPanel
                         )
                         Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
                     }
@@ -422,11 +418,89 @@ fun ProfileScreen(
                 }
             }
 
-
+            // Prominent Admin Access Card right below profile options
+            if (currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true) || currentUser.role == "ADMIN") {
+                item {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        onClick = onNavigateToAdminPanel,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(
+                                elevation = 6.dp,
+                                shape = RoundedCornerShape(22.dp),
+                                ambientColor = PrimaryPurple.copy(alpha = 0.3f),
+                                spotColor = PrimaryPurple.copy(alpha = 0.4f)
+                            )
+                            .testTag("btn_admin_panel_prominent"),
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color(0xFF1E1B4B),
+                        border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = PrimaryPurple,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AdminPanelSettings,
+                                        contentDescription = "Admin",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Admin Panel Access",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF10B981)
+                                    ) {
+                                        Text(
+                                            text = "SUPER ADMIN",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Manage listings, approve deals, and moderate users",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFC7D2FE)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Outlined.ChevronRight,
+                                contentDescription = "Enter Admin Panel",
+                                tint = Color(0xFFC7D2FE),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
             // Login / Logout Option (bottom of profile per user request)
             item {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 if (isLoggedIn) {
                     Surface(
                         onClick = { showLogoutConfirmDialog = true },

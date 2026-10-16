@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/bookset_launcher_icon_1789677723796"
+        android:drawable="@drawable/ic_bookswipe_launcher_1792141972050"
         android:gravity="center" />
 </layer-list>

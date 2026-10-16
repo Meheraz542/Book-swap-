@@ -63,7 +63,13 @@ service cloud.firestore {
 
       // Messages inside Conversation
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
+        allow read: if isAuthenticated() && (
+          (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantUids != null &&
+           request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantUids) ||
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.buyerId == request.auth.uid ||
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.sellerId == request.auth.uid ||
+          isAdmin()
+        );
         allow create: if isAuthenticated()
           && (request.resource.data.senderId == request.auth.uid || isAdmin());
         allow update, delete: if isAdmin();

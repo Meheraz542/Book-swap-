@@ -59,6 +59,23 @@ fun ChatScreen(
     val referencedSet = bookSets.find { it.id == conversation?.setId }
 
     var inputMessage by remember { mutableStateOf("") }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    // Real-time snapshot listener lifecycle for chat messages
+    DisposableEffect(conversationId) {
+        val registration = MarketplaceRepository.listenMessages(conversationId)
+        onDispose {
+            registration?.remove()
+        }
+    }
+
+    LaunchedEffect(conversation?.messages?.size) {
+        val count = conversation?.messages?.size ?: 0
+        if (count > 0) {
+            val totalItems = count + if (referencedSet != null) 1 else 0
+            listState.animateScrollToItem(totalItems - 1)
+        }
+    }
 
     if (conversation == null) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -305,6 +322,7 @@ fun ChatScreen(
     }
     ) { innerPadding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),

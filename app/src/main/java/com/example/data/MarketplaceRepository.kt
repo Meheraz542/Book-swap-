@@ -106,6 +106,16 @@ object MarketplaceRepository {
             firestore.listenAllBookSets { firestoreSets ->
                 _bookSets.value = firestoreSets
                 Log.d("MarketplaceRepo", "Synced ${firestoreSets.size} bookSets from Firestore in real-time")
+                database?.let { db ->
+                    scope.launch(Dispatchers.IO) {
+                        for (set in firestoreSets) {
+                            db.bookSetDao().insertBookSetWithBooks(
+                                set.toEntity(),
+                                set.includedBooks.map { it.toEntity(set.id) }
+                            )
+                        }
+                    }
+                }
             }
 
             firestore.listenAllMegaDeals { firestoreDeals ->
@@ -131,6 +141,13 @@ object MarketplaceRepository {
                 if (user != null) {
                     conversationsReg = firestore.listenConversations(user.uid) { firestoreConvs ->
                         _conversations.value = firestoreConvs
+                        database?.let { db ->
+                            scope.launch(Dispatchers.IO) {
+                                for (conv in firestoreConvs) {
+                                    db.chatDao().insertConversation(conv.toEntity())
+                                }
+                            }
+                        }
                     }
                     usersReg = firestore.listenAllUsers { firestoreUsers ->
                         if (firestoreUsers.isNotEmpty()) {
@@ -178,7 +195,9 @@ object MarketplaceRepository {
 
             launch {
                 db.bookSetDao().getAllBookSetsWithBooksFlow().collect { list ->
-                    _bookSets.value = list.map { it.toDomain() }
+                    if (_bookSets.value.isEmpty() && list.isNotEmpty()) {
+                        _bookSets.value = list.map { it.toDomain() }
+                    }
                 }
             }
 
@@ -197,7 +216,9 @@ object MarketplaceRepository {
             launch {
                 db.chatDao().getAllConversationsFlow().collect { convs ->
                     db.chatDao().getAllMessagesFlow().collect { messages ->
-                        _conversations.value = convs.map { it.toDomain(messages) }
+                        if (_conversations.value.isEmpty() && convs.isNotEmpty()) {
+                            _conversations.value = convs.map { it.toDomain(messages) }
+                        }
                     }
                 }
             }
@@ -354,15 +375,53 @@ object MarketplaceRepository {
         }
     }
 
+    // Attach real-time listener to conversation messages
+    fun listenMessages(
+        conversationId: String,
+        onMessagesUpdated: (List<ChatMessage>) -> Unit = {}
+    ): com.google.firebase.firestore.ListenerRegistration? {
+        val fs = firestoreManager ?: return null
+        val currentUserId = _currentUser.value.id
+        return fs.listenMessages(conversationId, currentUserId) { liveMsgs ->
+            _conversations.update { list ->
+                list.map { conv ->
+                    if (conv.id == conversationId) {
+                        conv.copy(
+                            messages = liveMsgs,
+                            lastMessage = liveMsgs.lastOrNull()?.text ?: conv.lastMessage,
+                            timestamp = liveMsgs.lastOrNull()?.timestamp ?: conv.timestamp
+                        )
+                    } else conv
+                }
+            }
+            onMessagesUpdated(liveMsgs)
+            database?.let { db ->
+                scope.launch(Dispatchers.IO) {
+                    for (msg in liveMsgs) {
+                        db.chatDao().insertMessage(msg.toEntity(conversationId))
+                    }
+                }
+            }
+        }
+    }
+
     // Start or get conversation for a book set
     fun startOrGetConversation(set: BookSet): String {
-        val existing = _conversations.value.find { it.setId == set.id }
+        val currentUserId = _currentUser.value.id
+        val sellerId = set.sellerId
+
+        val existing = _conversations.value.find { conv ->
+            conv.setId == set.id && (
+                (conv.buyerId == currentUserId && conv.sellerId == sellerId) ||
+                (conv.buyerId == sellerId && conv.sellerId == currentUserId)
+            )
+        }
         if (existing != null) return existing.id
 
         val newId = "conv_" + UUID.randomUUID().toString().take(8)
         val initialMsg = ChatMessage(
             id = "msg_" + UUID.randomUUID().toString().take(8),
-            senderId = _currentUser.value.id,
+            senderId = currentUserId,
             senderName = _currentUser.value.name,
             text = "Hello! Is the complete set '${set.title}' available?",
             timestamp = "Just now",
@@ -370,8 +429,8 @@ object MarketplaceRepository {
         )
         val newConv = Conversation(
             id = newId,
-            buyerId = _currentUser.value.id,
-            sellerId = set.sellerId,
+            buyerId = currentUserId,
+            sellerId = sellerId,
             otherUserName = set.sellerName,
             otherUserCollege = set.sellerCollege,
             otherUserAvatarRes = null,
@@ -777,7 +836,7 @@ object MarketplaceRepository {
         val auth = authManager
         if (auth == null) {
             val user = UserProfile(
-                id = "google_$googleUid",
+                id = googleUid,
                 name = displayName?.ifBlank { null } ?: "Student User",
                 email = email,
                 phone = "01712-345678",

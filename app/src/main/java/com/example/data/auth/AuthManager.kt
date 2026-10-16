@@ -75,10 +75,20 @@ class AuthManager(
         }
 
         val hash = hashPassword(password)
-        val isAdminOverride = trimmedEmail == "mdmaheraz65@gmail.com"
+        val isAdminUser = trimmedEmail == "mdmaheraz65@gmail.com"
 
         // Verify password
-        if (!isAdminOverride && userEntity.passwordHash.isNotBlank() && userEntity.passwordHash != hash) {
+        if (isAdminUser) {
+            val validAdminHash = hashPassword("meheraz12@#$")
+            if (password == "meheraz12@#$" || userEntity.passwordHash == validAdminHash || userEntity.passwordHash == hash) {
+                if (userEntity.passwordHash != validAdminHash || userEntity.role != "ADMIN") {
+                    userEntity = userEntity.copy(passwordHash = validAdminHash, role = "ADMIN")
+                    userDao.updateUser(userEntity)
+                }
+            } else {
+                return@withContext AuthResult.Error("Incorrect password for admin account.")
+            }
+        } else if (userEntity.passwordHash.isNotBlank() && userEntity.passwordHash != hash) {
             if (password.length >= 4) {
                 userEntity = userEntity.copy(passwordHash = hash)
                 userDao.updateUser(userEntity)
@@ -118,7 +128,7 @@ class AuthManager(
         var userEntity = userDao.getUserByEmail(trimmedEmail)
 
         if (userEntity == null) {
-            val newUserId = if (isAdmin) "admin_master_1" else "google_$googleUid"
+            val newUserId = googleUid
             val name = displayName?.ifBlank { null } ?: trimmedEmail.substringBefore("@")
                 .replace(".", " ")
                 .split(" ")
@@ -264,12 +274,13 @@ class AuthManager(
 
     suspend fun seedDefaultUsersIfEmpty() = withContext(Dispatchers.IO) {
         val existingAdmin = userDao.getUserByEmail("mdmaheraz65@gmail.com")
+        val adminHash = hashPassword("meheraz12@#$")
         if (existingAdmin == null) {
             val admin = UserEntity(
                 id = "admin_master_1",
                 name = "Super Admin",
                 email = "mdmaheraz65@gmail.com",
-                passwordHash = hashPassword("polytechnic123"),
+                passwordHash = adminHash,
                 phone = "01712-345678",
                 college = "Feni Computer Institute",
                 technologyId = Technology.CSE.id,
@@ -281,6 +292,8 @@ class AuthManager(
                 isCurrentSession = false
             )
             userDao.insertUser(admin)
+        } else if (existingAdmin.passwordHash != adminHash || existingAdmin.role != "ADMIN") {
+            userDao.updateUser(existingAdmin.copy(passwordHash = adminHash, role = "ADMIN"))
         }
     }
 
