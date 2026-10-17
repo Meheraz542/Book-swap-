@@ -884,101 +884,80 @@ fun ProfileScreen(
                     }
 
                     if (!isRegisterTab) {
-                        // SIGN IN TAB with Firebase Google Authentication
-                        Text(
-                            text = "Sign in with your Google account to sync your student profile, upload book sets, and chat with buyers.",
-                            fontSize = 12.5.sp,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(vertical = 4.dp)
+                        // SIGN IN TAB with Email and Password
+                        OutlinedTextField(
+                            value = signInEmail,
+                            onValueChange = { signInEmail = it; authError = null },
+                            label = { Text("Email Address") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
+                            modifier = Modifier.fillMaxWidth().testTag("input_profile_dialog_email"),
+                            shape = RoundedCornerShape(14.dp)
                         )
 
-                        // Direct Sign in with Google Button
-                        Surface(
+                        OutlinedTextField(
+                            value = signInPassword,
+                            onValueChange = { signInPassword = it; authError = null },
+                            label = { Text("Password") },
+                            singleLine = true,
+                            visualTransformation = if (signInPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                            trailingIcon = {
+                                IconButton(onClick = { signInPasswordVisible = !signInPasswordVisible }) {
+                                    Icon(
+                                        imageVector = if (signInPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = "Toggle password"
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("input_profile_dialog_password"),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+
+                        Button(
                             onClick = {
+                                if (signInEmail.isBlank()) {
+                                    authError = "Please enter your email address."
+                                    return@Button
+                                }
+                                if (signInPassword.isBlank()) {
+                                    authError = "Please enter your password."
+                                    return@Button
+                                }
                                 coroutineScope.launch {
                                     isLoading = true
                                     authError = null
                                     try {
-                                        val res = MarketplaceRepository.performGoogleSignIn(
-                                            googleUid = "google_user_demo_1",
-                                            email = "mdmaheraz65@gmail.com",
-                                            displayName = "Mh Nirob",
-                                            photoUrl = null
+                                        val res = MarketplaceRepository.performSignIn(
+                                            email = signInEmail.trim(),
+                                            password = signInPassword.trim()
                                         )
                                         if (res is AuthResult.Success) {
                                             showLoginDialog = false
                                         } else if (res is AuthResult.Error) {
                                             authError = res.message
                                         }
+                                    } catch (e: Exception) {
+                                        authError = e.message ?: "Sign in failed"
                                     } finally {
                                         isLoading = false
                                     }
                                 }
                             },
                             enabled = !isLoading,
-                            shape = RoundedCornerShape(14.dp),
-                            color = Color.White,
-                            border = BorderStroke(1.2.dp, Color(0xFFCBD5E1)),
-                            shadowElevation = 2.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
-                                .testTag("btn_google_signin_profile")
+                                .testTag("btn_profile_dialog_signin"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFF4285F4),
-                                    modifier = Modifier.size(22.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = "G",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Black
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = if (isLoading) "Signing in with Google..." else "Sign in with Google",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1E293B)
-                                )
-                            }
-                        }
-
-                        // Security guarantee badge
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFF8FAFC),
-                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Shield,
-                                    contentDescription = null,
-                                    tint = PrimaryPurple,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Authenticated directly via Firebase Google Identity Services.",
-                                    fontSize = 11.5.sp,
-                                    color = TextMuted
-                                )
-                            }
+                            Text(
+                                text = if (isLoading) "Signing in..." else "Sign In",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
                         }
                     } else {
                         // REGISTER TAB

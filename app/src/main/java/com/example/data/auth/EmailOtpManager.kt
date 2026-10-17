@@ -127,6 +127,7 @@ class EmailOtpManager(private val context: Context) {
             expiresAt = expiresAt
         )
         pendingRegistration = pending
+        savePendingToPrefs(pending)
 
         // Dispatch system push notification
         sendSystemNotification(trimmedEmail, otp)
@@ -140,7 +141,7 @@ class EmailOtpManager(private val context: Context) {
     }
 
     fun resendOtp(): OtpResult {
-        val pending = pendingRegistration
+        val pending = pendingRegistration ?: loadPendingFromPrefs()
             ?: return OtpResult.Error("কোনো সক্রিয় রেজিস্ট্রেশন পাওয়া যায়নি। অনুগ্রহ করে পুনরায় সাইন আপ করুন।")
 
         val newOtp = generateOtp()
@@ -152,6 +153,7 @@ class EmailOtpManager(private val context: Context) {
             createdAt = System.currentTimeMillis()
         )
         pendingRegistration = updated
+        savePendingToPrefs(updated)
 
         sendSystemNotification(updated.email, newOtp)
 
@@ -164,7 +166,7 @@ class EmailOtpManager(private val context: Context) {
     }
 
     fun verifyOtp(enteredCode: String): Result<PendingRegistration> {
-        val pending = pendingRegistration
+        val pending = pendingRegistration ?: loadPendingFromPrefs()
             ?: return Result.failure(IllegalStateException("রেজিস্ট্রেশন প্রক্রিয়া মেয়াদোত্তীর্ণ হয়েছে। অনুগ্রহ করে আবার শুরু করুন।"))
 
         if (System.currentTimeMillis() > pending.expiresAt) {
@@ -178,13 +180,68 @@ class EmailOtpManager(private val context: Context) {
         // Verification successful, consume pending registration
         val completed = pending
         pendingRegistration = null
+        clearPendingPrefs()
         return Result.success(completed)
     }
 
-    fun getPendingRegistration(): PendingRegistration? = pendingRegistration
+    fun getPendingRegistration(): PendingRegistration? = pendingRegistration ?: loadPendingFromPrefs()
 
     fun cancelPending() {
         pendingRegistration = null
+        clearPendingPrefs()
+    }
+
+    private fun savePendingToPrefs(pending: PendingRegistration) {
+        val prefs = context.getSharedPreferences("email_otp_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("name", pending.name)
+            .putString("email", pending.email)
+            .putString("password", pending.password)
+            .putString("phone", pending.phone)
+            .putString("college", pending.college)
+            .putString("tech_id", pending.technology.id)
+            .putString("sem_id", pending.semester.id)
+            .putString("otp_code", pending.otpCode)
+            .putLong("expires_at", pending.expiresAt)
+            .apply()
+    }
+
+    private fun loadPendingFromPrefs(): PendingRegistration? {
+        val prefs = context.getSharedPreferences("email_otp_prefs", Context.MODE_PRIVATE)
+        val email = prefs.getString("email", null) ?: return null
+        val otpCode = prefs.getString("otp_code", null) ?: return null
+        val expiresAt = prefs.getLong("expires_at", 0L)
+        if (System.currentTimeMillis() > expiresAt) {
+            clearPendingPrefs()
+            return null
+        }
+        val name = prefs.getString("name", "") ?: ""
+        val password = prefs.getString("password", "") ?: ""
+        val phone = prefs.getString("phone", "") ?: ""
+        val college = prefs.getString("college", "") ?: ""
+        val techId = prefs.getString("tech_id", "civil") ?: "civil"
+        val semId = prefs.getString("sem_id", "1") ?: "1"
+
+        val pending = PendingRegistration(
+            name = name,
+            email = email,
+            password = password,
+            phone = phone,
+            college = college,
+            technology = Technology.fromId(techId),
+            semester = Semester.fromId(semId),
+            otpCode = otpCode,
+            expiresAt = expiresAt
+        )
+        pendingRegistration = pending
+        return pending
+    }
+
+    private fun clearPendingPrefs() {
+        context.getSharedPreferences("email_otp_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
     }
 
     private fun sendSystemNotification(email: String, otp: String) {

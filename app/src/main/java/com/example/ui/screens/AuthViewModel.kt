@@ -115,13 +115,7 @@ class AuthViewModel : ViewModel() {
                 _uiState.value = AuthUiState.Idle
             } catch (e: GetCredentialException) {
                 Log.w("AuthViewModel", "Credential manager failure: ${e.message}", e)
-                // Fallback for emulator / environment without Google Play Services accounts
-                fallbackGoogleSignIn(
-                    college = college,
-                    technology = technology,
-                    semester = semester,
-                    onAuthSuccess = onAuthSuccess
-                )
+                _uiState.value = AuthUiState.Error("Google Play Services unavailable. Please sign in with your email & password.")
             } catch (e: Exception) {
                 Log.e("AuthViewModel", "Google Sign-In failed", e)
                 _uiState.value = AuthUiState.Error(e.localizedMessage ?: "Google Sign-In failed. Please try again.")
@@ -149,47 +143,7 @@ class AuthViewModel : ViewModel() {
                 }
         }
 
-    /**
-     * Graceful student fallback for browser streaming emulator where Google Play Services accounts
-     * dialog cannot display native UI overlays.
-     */
-    fun fallbackGoogleSignIn(
-        college: String = "Feni Polytechnic Institute",
-        technology: Technology = Technology.CIVIL,
-        semester: Semester = Semester.SEM_1,
-        onAuthSuccess: () -> Unit
-    ) {
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading("Signing in as Verified Student...")
-            try {
-                val demoEmail = "mdmaheraz65@gmail.com"
-                val demoUid = "google_user_verified_1"
-                val demoName = "Verified Student"
 
-                val authResult = MarketplaceRepository.performGoogleSignIn(
-                    googleUid = demoUid,
-                    email = demoEmail,
-                    displayName = demoName,
-                    photoUrl = null,
-                    college = college,
-                    technology = technology,
-                    semester = semester
-                )
-
-                when (authResult) {
-                    is AuthResult.Success -> {
-                        _uiState.value = AuthUiState.Success(authResult.user)
-                        onAuthSuccess()
-                    }
-                    is AuthResult.Error -> {
-                        _uiState.value = AuthUiState.Error(authResult.message)
-                    }
-                }
-            } catch (e: Exception) {
-                _uiState.value = AuthUiState.Error(e.localizedMessage ?: "Failed to sign in.")
-            }
-        }
-    }
 
     fun resetState() {
         _uiState.value = AuthUiState.Idle

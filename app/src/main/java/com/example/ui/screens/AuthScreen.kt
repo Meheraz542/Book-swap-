@@ -440,20 +440,6 @@ fun AuthScreen(
                                         }
                                     }
                                 },
-                                onGoogleSignIn = {
-                                    isLoading = true
-                                    errorMessage = null
-                                    viewModel.signInWithGoogle(
-                                        context = context,
-                                        college = regCollege,
-                                        technology = regTech,
-                                        semester = regSem,
-                                        onAuthSuccess = {
-                                            isLoading = false
-                                            onAuthSuccess()
-                                        }
-                                    )
-                                },
                                 onSwitchToRegister = {
                                     isRegisterTab = true
                                     errorMessage = null
@@ -638,7 +624,7 @@ private fun SmoothAuthTabSwitcher(
 }
 
 /**
- * Sign In Form with Email, Password, and "Sign in with Google" directly below.
+ * Sign In Form with Email and Password.
  */
 @Composable
 private fun SignInForm(
@@ -650,7 +636,6 @@ private fun SignInForm(
     onTogglePasswordVisibility: () -> Unit,
     isLoading: Boolean,
     onSignIn: () -> Unit,
-    onGoogleSignIn: () -> Unit,
     onSwitchToRegister: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
@@ -750,31 +735,6 @@ private fun SignInForm(
             onClick = onSignIn,
             modifier = Modifier.fillMaxWidth(),
             testTag = "btn_submit_signin"
-        )
-
-        // Divider
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-            Text(
-                text = " OR ",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextMuted,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-            HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-        }
-
-        // Direct Sign in with Google Button
-        GoogleSignInButton(
-            isLoading = isLoading,
-            onClick = onGoogleSignIn,
-            modifier = Modifier.fillMaxWidth()
         )
 
         // Switch to Sign Up text link

@@ -125,40 +125,38 @@ object MarketplaceRepository {
             Log.e("MarketplaceRepo", "Failed to start public Firestore listeners", e)
         }
 
-        // Authenticated Firestore Listeners - attached when Firebase Auth user is present
+        // Real-Time Cloud Firestore Listeners for User Directory and Conversations
         try {
-            val firebaseAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
+            // Listen to all users for admin directory and live sync
+            firestore.listenAllUsers { firestoreUsers ->
+                if (firestoreUsers.isNotEmpty()) {
+                    _allUsers.value = firestoreUsers
+                    Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
+                }
+            }
+
+            // Dynamically listen to conversations for current active session
             var conversationsReg: com.google.firebase.firestore.ListenerRegistration? = null
-            var usersReg: com.google.firebase.firestore.ListenerRegistration? = null
-
-            firebaseAuth.addAuthStateListener { auth ->
-                val user = auth.currentUser
-                conversationsReg?.remove()
-                conversationsReg = null
-                usersReg?.remove()
-                usersReg = null
-
-                if (user != null) {
-                    conversationsReg = firestore.listenConversations(user.uid) { firestoreConvs ->
-                        _conversations.value = firestoreConvs
-                        database?.let { db ->
-                            scope.launch(Dispatchers.IO) {
-                                for (conv in firestoreConvs) {
-                                    db.chatDao().insertConversation(conv.toEntity())
+            scope.launch {
+                currentUser.collect { user ->
+                    conversationsReg?.remove()
+                    conversationsReg = null
+                    if (user.id.isNotBlank()) {
+                        conversationsReg = firestore.listenConversations(user.id) { firestoreConvs ->
+                            _conversations.value = firestoreConvs
+                            database?.let { db ->
+                                scope.launch(Dispatchers.IO) {
+                                    for (conv in firestoreConvs) {
+                                        db.chatDao().insertConversation(conv.toEntity())
+                                    }
                                 }
                             }
-                        }
-                    }
-                    usersReg = firestore.listenAllUsers { firestoreUsers ->
-                        if (firestoreUsers.isNotEmpty()) {
-                            _allUsers.value = firestoreUsers
-                            Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
                         }
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("MarketplaceRepo", "Failed to attach auth state listener", e)
+            Log.e("MarketplaceRepo", "Failed to start Firestore listeners", e)
         }
 
         scope.launch(Dispatchers.IO) {

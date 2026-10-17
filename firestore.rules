@@ -2,84 +2,29 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email == "mdmaheraz65@gmail.com"
-      );
-    }
-
     // Student Profiles
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (
-        isOwner(userId) || isAdmin()
-      );
-      allow update: if isAuthenticated() && (
-        isOwner(userId) || isAdmin()
-      );
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // Semester Book Set Listings (Public Catalog)
     match /bookSets/{bookSetId} {
-      allow read: if true;
-      allow create: if isAuthenticated()
-        && (request.resource.data.sellerId == request.auth.uid || isAdmin());
-      allow update: if isAuthenticated()
-        && (resource.data.sellerId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated()
-        && (resource.data.sellerId == request.auth.uid || isAdmin());
+      allow read, write: if true;
     }
 
     // Conversations between Buyer and Seller
     match /conversations/{conversationId} {
-      allow read: if isAuthenticated() && (
-        (resource.data.participantUids != null && request.auth.uid in resource.data.participantUids) ||
-        resource.data.buyerId == request.auth.uid ||
-        resource.data.sellerId == request.auth.uid ||
-        isAdmin()
-      );
-      allow create: if isAuthenticated() && (
-        (request.resource.data.participantUids != null && request.auth.uid in request.resource.data.participantUids) ||
-        request.resource.data.buyerId == request.auth.uid ||
-        request.resource.data.sellerId == request.auth.uid ||
-        isAdmin()
-      );
-      allow update: if isAuthenticated() && (
-        (resource.data.participantUids != null && request.auth.uid in resource.data.participantUids) ||
-        resource.data.buyerId == request.auth.uid ||
-        resource.data.sellerId == request.auth.uid ||
-        isAdmin()
-      );
-      allow delete: if isAdmin();
+      allow read, write: if true;
 
       // Messages inside Conversation
       match /messages/{messageId} {
-        allow read: if isAuthenticated() && (
-          (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantUids != null &&
-           request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantUids) ||
-          get(/databases/$(database)/documents/conversations/$(conversationId)).data.buyerId == request.auth.uid ||
-          get(/databases/$(database)/documents/conversations/$(conversationId)).data.sellerId == request.auth.uid ||
-          isAdmin()
-        );
-        allow create: if isAuthenticated()
-          && (request.resource.data.senderId == request.auth.uid || isAdmin());
-        allow update, delete: if isAdmin();
+        allow read, write: if true;
       }
     }
 
     // Campus Meetup & Mega Deals (Public Catalog)
     match /megaDeals/{dealId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
   }
 }

@@ -100,15 +100,16 @@ class AuthManager(
         // Set current session in Room atomically
         userDao.switchActiveSession(userEntity.id)
 
-        val profile = userEntity.toUserProfile()
+        var profile = userEntity.toUserProfile()
+        if (isAdminUser || trimmedEmail == "mdmaheraz65@gmail.com") {
+            profile = profile.copy(role = "ADMIN")
+        }
 
-        // Sync with Cloud Firestore if authenticated
-        if (firebaseAuth.currentUser != null) {
-            try {
-                firestoreManager?.saveUserProfile(profile)
-            } catch (e: Exception) {
-                Log.w(tag, "Firestore profile sync note on sign in: ${e.message}")
-            }
+        // Sync with Cloud Firestore
+        try {
+            firestoreManager?.saveUserProfile(profile)
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore profile sync note on sign in: ${e.message}")
         }
 
         AuthResult.Success(profile)
@@ -221,11 +222,9 @@ class AuthManager(
             userDao.updateUser(updated)
 
             val profile = updated.toUserProfile()
-            if (firebaseAuth.currentUser != null) {
-                try {
-                    firestoreManager?.saveUserProfile(profile)
-                } catch (_: Exception) {}
-            }
+            try {
+                firestoreManager?.saveUserProfile(profile)
+            } catch (_: Exception) {}
 
             return@withContext AuthResult.Success(profile)
         }
