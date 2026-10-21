@@ -2,9 +2,19 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -12,12 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.*
@@ -35,6 +44,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.MarketplaceRepository
@@ -55,8 +66,13 @@ fun SetDetailsScreen(
     val currentUser by MarketplaceRepository.currentUser.collectAsState()
     val isOwner = currentUser.id == bookSet.sellerId
 
-    var isFavorite by remember { mutableStateOf(false) }
-    var isSaved by remember { mutableStateOf(bookSet.isSaved) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showMarkAsSoldConfirmDialog by remember { mutableStateOf(false) }
+
+    // Increment actual book view interaction in telemetry
+    LaunchedEffect(bookSet.id) {
+        MarketplaceRepository.recordBookCheck()
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -80,30 +96,15 @@ fun SetDetailsScreen(
                     testTag = "btn_details_back"
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Favorite Heart
-                    GlassIconButton(
-                        onClick = { isFavorite = !isFavorite },
-                        icon = if (isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tone = if (isFavorite) GlassIconTone.DANGER else GlassIconTone.FROSTED_WHITE,
-                        size = 44.dp,
-                        testTag = "btn_details_favorite"
-                    )
-
-                    // Bookmark
-                    GlassIconButton(
-                        onClick = {
-                            isSaved = !isSaved
-                            MarketplaceRepository.toggleSaveSet(bookSet.id)
-                        },
-                        icon = if (isSaved) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
-                        contentDescription = "Save",
-                        tone = if (isSaved) GlassIconTone.PRIMARY_PURPLE else GlassIconTone.FROSTED_WHITE,
-                        size = 44.dp,
-                        testTag = "btn_details_save"
-                    )
-                }
+                // Single Delete Button replacing Like & Save icons
+                GlassIconButton(
+                    onClick = { showDeleteConfirmDialog = true },
+                    icon = Icons.Outlined.Delete,
+                    contentDescription = "Delete Listing",
+                    tone = GlassIconTone.DANGER,
+                    size = 44.dp,
+                    testTag = "btn_details_delete"
+                )
             }
         },
         bottomBar = {
@@ -138,8 +139,9 @@ fun SetDetailsScreen(
                     } else if (isOwner) {
                         GlassButton(
                             text = "Mark as Sold (Physical Exchange)",
-                            onClick = { onMarkAsSold(bookSet) },
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = { showMarkAsSoldConfirmDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "btn_mark_as_sold"
                         )
                     } else {
                         Row(
@@ -564,18 +566,20 @@ fun SetDetailsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Seller Avatar
+                        // Seller Avatar - blank default avatar so no picture is displayed
                         Surface(
                             modifier = Modifier.size(54.dp),
                             shape = CircleShape,
-                            color = PrimaryPurpleLight
+                            color = Color(0xFFE2E8F0)
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.avatar_rahim_1789677826412),
-                                contentDescription = bookSet.sellerName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Person,
+                                    contentDescription = "No avatar displayed",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(14.dp))
@@ -639,6 +643,173 @@ fun SetDetailsScreen(
                                     contentDescription = "Call",
                                     tint = Color(0xFF10B981),
                                     modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirmation Popups with 'Pop' Entrance Animation
+    PopAnimatedConfirmationDialog(
+        isOpen = showDeleteConfirmDialog,
+        onDismissRequest = { showDeleteConfirmDialog = false },
+        onConfirm = {
+            showDeleteConfirmDialog = false
+            MarketplaceRepository.deleteSet(bookSet.id)
+            onNavigateBack()
+        },
+        title = "Delete Book Listing?",
+        description = "Are you sure you want to delete '${bookSet.title}'? This action cannot be undone.",
+        confirmButtonText = "Delete Listing",
+        confirmButtonColor = Color(0xFFEF4444),
+        icon = Icons.Outlined.Delete,
+        iconColor = Color(0xFFEF4444),
+        testTagConfirm = "btn_confirm_delete_popup"
+    )
+
+    PopAnimatedConfirmationDialog(
+        isOpen = showMarkAsSoldConfirmDialog,
+        onDismissRequest = { showMarkAsSoldConfirmDialog = false },
+        onConfirm = {
+            showMarkAsSoldConfirmDialog = false
+            onMarkAsSold(bookSet)
+        },
+        title = "Mark as Sold?",
+        description = "Have you completed the physical book exchange on campus with the buyer?",
+        confirmButtonText = "Mark as Sold",
+        confirmButtonColor = PrimaryPurple,
+        icon = Icons.Outlined.CheckCircle,
+        iconColor = PrimaryPurple,
+        testTagConfirm = "btn_confirm_sold_popup"
+    )
+}
+
+/**
+ * Animated Confirmation Dialog with a bouncy 'Pop' entrance effect.
+ */
+@Composable
+private fun PopAnimatedConfirmationDialog(
+    isOpen: Boolean,
+    onDismissRequest: () -> Unit,
+    onConfirm: () -> Unit,
+    title: String,
+    description: String,
+    confirmButtonText: String,
+    confirmButtonColor: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconColor: Color,
+    testTagConfirm: String
+) {
+    if (isOpen) {
+        Dialog(
+            onDismissRequest = onDismissRequest,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            var animateIn by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                animateIn = true
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDismissRequest() },
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVisibility(
+                    visible = animateIn,
+                    enter = scaleIn(
+                        initialScale = 0.55f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    ) + fadeIn(animationSpec = tween(180)),
+                    exit = scaleOut(targetScale = 0.8f) + fadeOut(animationSpec = tween(120))
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(26.dp),
+                        color = Color.White,
+                        shadowElevation = 24.dp,
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {} // Prevent dismiss on modal card click
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = iconColor.copy(alpha = 0.12f),
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = iconColor,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = title,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = description,
+                                fontSize = 13.5.sp,
+                                color = TextSecondary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 19.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(22.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                FrostedGlassButton(
+                                    text = "Cancel",
+                                    onClick = onDismissRequest,
+                                    textColor = TextSecondary,
+                                    modifier = Modifier.weight(1f),
+                                    height = 44.dp,
+                                    testTag = "btn_popup_cancel"
+                                )
+
+                                GlassButton(
+                                    text = confirmButtonText,
+                                    onClick = onConfirm,
+                                    gradient = Brush.horizontalGradient(
+                                        listOf(confirmButtonColor, confirmButtonColor.copy(alpha = 0.85f))
+                                    ),
+                                    modifier = Modifier.weight(1.3f),
+                                    height = 44.dp,
+                                    testTag = testTagConfirm
                                 )
                             }
                         }

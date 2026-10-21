@@ -168,6 +168,7 @@ fun AuthScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(scrollState)
+                .imePadding()
                 .padding(horizontal = 22.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -197,7 +198,7 @@ fun AuthScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // App Logo Emblem - Official BookSwipe Squircle Logo
+            // App Logo Emblem - Official BookSwap Squircle Logo
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = Color.Black,
@@ -209,7 +210,7 @@ fun AuthScreen(
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_bookswipe_logo),
-                    contentDescription = "BookSwipe Logo",
+                    contentDescription = "BookSwap Logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -217,29 +218,13 @@ fun AuthScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // App Brand Name & Tagline
+            // App Brand Name
             Text(
-                text = "BookSwipe",
+                text = "BookSwap",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = TextPrimary,
                 letterSpacing = 0.2.sp
-            )
-
-            Text(
-                text = "Polytechnic Student Book Sharing",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = PrimaryBlue,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-
-            Text(
-                text = "Feni Polytechnic & Feni Computer Institute",
-                fontSize = 11.5.sp,
-                color = TextMuted,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 2.dp)
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -416,6 +401,10 @@ fun AuthScreen(
                                         errorMessage = "Please enter your password."
                                         return@SignInForm
                                     }
+                                    if (signInPassword.length < 6) {
+                                        errorMessage = "Password must be at least 6 characters long."
+                                        return@SignInForm
+                                    }
 
                                     isLoading = true
                                     errorMessage = null
@@ -481,8 +470,8 @@ fun AuthScreen(
                                         errorMessage = "Please enter your email address."
                                         return@SignUpForm
                                     }
-                                    if (regPassword.length < 4) {
-                                        errorMessage = "Password must be at least 4 characters long."
+                                    if (regPassword.length < 6) {
+                                        errorMessage = "Password must be at least 6 characters long."
                                         return@SignUpForm
                                     }
                                     if (regPhone.isBlank()) {
@@ -1470,7 +1459,7 @@ private fun GmailOtpVerificationCard(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-            // Invisible BasicTextField capturing numeric keystrokes
+            // BasicTextField capturing numeric keystrokes with full touch bounds
             BasicTextField(
                 value = otpCode,
                 onValueChange = onOtpChange,

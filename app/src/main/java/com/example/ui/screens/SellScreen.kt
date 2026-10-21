@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -109,8 +110,6 @@ fun SellScreen(
         return
     }
 
-    var setName by remember { mutableStateOf("") }
-    var subject by remember { mutableStateOf("") }
     var college by remember { mutableStateOf(currentUser.college) }
     var collegeDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -153,15 +152,49 @@ fun SellScreen(
         }
     }
 
-    // Included Books list (Real clean list)
+    // Included Books list
     var includedBooks by remember {
         mutableStateOf(emptyList<IncludedBook>())
     }
 
     var showAddBookDialog by remember { mutableStateOf(false) }
-    var newBookTitle by remember { mutableStateOf("") }
-    var newBookSubject by remember { mutableStateOf("") }
+    var newBookSubjectName by remember { mutableStateOf("") }
     var newBookAuthor by remember { mutableStateOf("") }
+    var newBookImage1Uri by remember { mutableStateOf<String?>(null) }
+    var newBookImage2Uri by remember { mutableStateOf<String?>(null) }
+    var isSavingBookImage by remember { mutableStateOf(false) }
+
+    val bookImage1PickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                isSavingBookImage = true
+                try {
+                    val persistentUri = ImageStorageManager.saveImageLocally(context, uri)
+                    newBookImage1Uri = persistentUri
+                } finally {
+                    isSavingBookImage = false
+                }
+            }
+        }
+    }
+
+    val bookImage2PickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                isSavingBookImage = true
+                try {
+                    val persistentUri = ImageStorageManager.saveImageLocally(context, uri)
+                    newBookImage2Uri = persistentUri
+                } finally {
+                    isSavingBookImage = false
+                }
+            }
+        }
+    }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPublished by remember { mutableStateOf(false) }
@@ -237,7 +270,8 @@ fun SellScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .padding(innerPadding)
+                    .imePadding(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -263,37 +297,6 @@ fun SellScreen(
                     }
                 }
 
-                // Set Basic Info
-                item {
-                    GlassCard(modifier = Modifier.fillMaxWidth()) {
-                        Text("Set Information", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        OutlinedTextField(
-                            value = setName,
-                            onValueChange = { setName = it },
-                            label = { Text("Set Name / Title") },
-                            placeholder = { Text("e.g. Civil Technology 4th Sem Set") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_set_name"),
-                            shape = RoundedCornerShape(16.dp),
-                            singleLine = true
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = subject,
-                            onValueChange = { subject = it },
-                            label = { Text("Primary Subject / Department") },
-                            placeholder = { Text("e.g. Civil Engineering") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            singleLine = true
-                        )
-                    }
-                }
 
                 // Institute, Technology & Semester Selectors
                 item {
@@ -467,10 +470,41 @@ fun SellScreen(
                                 color = PrimaryPurple,
                                 fontSize = 14.sp
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Book Photo Thumbnails if uploaded
+                            if (book.imageUris.isNotEmpty()) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    book.imageUris.take(2).forEach { imgUri ->
+                                        AsyncImage(
+                                            model = imgUri,
+                                            contentDescription = "Book photo",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(book.bookName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
-                                Text("${book.subject}${if (book.author.isNotBlank()) " • " + book.author else ""}", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = book.bookName,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = TextPrimary
+                                )
+                                val subtitle = buildString {
+                                    if (book.author.isNotBlank()) append(book.author + " • ")
+                                    append(if (book.imageUris.isNotEmpty()) "${book.imageUris.size} Images" else "No photos")
+                                }
+                                Text(subtitle, fontSize = 12.sp, color = TextMuted)
                             }
                             GlassIconButton(
                                 onClick = {
@@ -685,23 +719,23 @@ fun SellScreen(
                         text = "Publish Book Set",
                         onClick = {
                             val price = totalPriceText.toIntOrNull()
-                            if (setName.isBlank()) {
-                                errorMessage = "Please enter a title for the book set."
-                            } else if (includedBooks.isEmpty()) {
+                            if (includedBooks.isEmpty()) {
                                 errorMessage = "Please include at least one book in this set."
                             } else if (price == null || price <= 0) {
                                 errorMessage = "Please enter a valid price (Tk)."
                             } else {
                                 errorMessage = null
+                                val autoTitle = "${selectedTech.displayName} ${selectedSem.shortName} Semester Set (${includedBooks.size} Books)"
+                                val autoSubject = selectedTech.displayName
                                 val newSet = MarketplaceRepository.publishSet(
-                                    title = setName.trim(),
-                                    subject = subject.ifBlank { "Core Engineering" },
+                                    title = autoTitle,
+                                    subject = autoSubject,
                                     technology = selectedTech,
                                     semester = selectedSem,
                                     college = college,
                                     totalPrice = price,
                                     overallCondition = overallCondition,
-                                    description = description.ifBlank { "Complete semester book set in ${overallCondition.label.lowercase()} condition." },
+                                    description = description.ifBlank { "Complete ${selectedSem.displayName} set for ${selectedTech.displayName} in ${overallCondition.label.lowercase()} condition." },
                                     includedBooks = includedBooks,
                                     imageUrls = selectedPhotoUris
                                 )
@@ -721,48 +755,195 @@ fun SellScreen(
     // Add Book Dialog
     if (showAddBookDialog) {
         AlertDialog(
-            onDismissRequest = { showAddBookDialog = false },
-            title = { Text("Add Included Book") },
+            onDismissRequest = {
+                showAddBookDialog = false
+                newBookSubjectName = ""
+                newBookAuthor = ""
+                newBookImage1Uri = null
+                newBookImage2Uri = null
+            },
+            title = {
+                Text(
+                    text = "Add Included Book",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = TextPrimary
+                )
+            },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
-                        value = newBookTitle,
-                        onValueChange = { newBookTitle = it },
-                        label = { Text("Book Title") },
-                        placeholder = { Text("e.g. Mathematics-IV") },
-                        singleLine = true
+                        value = newBookSubjectName,
+                        onValueChange = { newBookSubjectName = it },
+                        label = { Text("Subject Name") },
+                        placeholder = { Text("e.g. Mathematics-IV / Programming in C") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("dialog_input_subject_name")
                     )
-                    OutlinedTextField(
-                        value = newBookSubject,
-                        onValueChange = { newBookSubject = it },
-                        label = { Text("Subject") },
-                        placeholder = { Text("e.g. Applied Math") },
-                        singleLine = true
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = "Book Photos (Upload up to 2)",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = TextPrimary
                     )
-                    OutlinedTextField(
-                        value = newBookAuthor,
-                        onValueChange = { newBookAuthor = it },
-                        label = { Text("Author (Optional)") },
-                        singleLine = true
+                    Text(
+                        text = "Front cover & inside condition",
+                        fontSize = 11.sp,
+                        color = TextMuted
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Image 1 Box
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(95.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFF8FAFC))
+                                .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    bookImage1PickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (newBookImage1Uri != null) {
+                                AsyncImage(
+                                    model = newBookImage1Uri,
+                                    contentDescription = "Photo 1",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                IconButton(
+                                    onClick = { newBookImage1Uri = null },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(4.dp)
+                                        .size(24.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove photo 1",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AddPhotoAlternate,
+                                        contentDescription = null,
+                                        tint = PrimaryPurple,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Photo 1",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+
+                        // Image 2 Box
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(95.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFF8FAFC))
+                                .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    bookImage2PickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (newBookImage2Uri != null) {
+                                AsyncImage(
+                                    model = newBookImage2Uri,
+                                    contentDescription = "Photo 2",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                IconButton(
+                                    onClick = { newBookImage2Uri = null },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(4.dp)
+                                        .size(24.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove photo 2",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AddPhotoAlternate,
+                                        contentDescription = null,
+                                        tint = PrimaryPurple,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Photo 2",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 GlassButton(
-                    text = "Add",
+                    text = "Add Book",
                     onClick = {
-                        if (newBookTitle.isNotBlank()) {
+                        if (newBookSubjectName.isNotBlank()) {
+                            val imgs = listOfNotNull(newBookImage1Uri, newBookImage2Uri)
                             val added = IncludedBook(
-                                id = "b_" + (includedBooks.size + 1),
+                                id = "b_" + (includedBooks.size + 1) + "_" + System.currentTimeMillis(),
                                 setId = "",
-                                bookName = newBookTitle.trim(),
-                                subject = newBookSubject.ifBlank { "Technical Subject" },
-                                author = newBookAuthor.trim()
+                                bookName = newBookSubjectName.trim(),
+                                subject = newBookSubjectName.trim(),
+                                author = newBookAuthor.trim(),
+                                imageUris = imgs
                             )
                             includedBooks = includedBooks + added
-                            newBookTitle = ""
-                            newBookSubject = ""
+                            newBookSubjectName = ""
                             newBookAuthor = ""
+                            newBookImage1Uri = null
+                            newBookImage2Uri = null
                             showAddBookDialog = false
                         }
                     },
@@ -773,7 +954,13 @@ fun SellScreen(
             dismissButton = {
                 FrostedGlassButton(
                     text = "Cancel",
-                    onClick = { showAddBookDialog = false },
+                    onClick = {
+                        showAddBookDialog = false
+                        newBookSubjectName = ""
+                        newBookAuthor = ""
+                        newBookImage1Uri = null
+                        newBookImage2Uri = null
+                    },
                     height = 42.dp,
                     textColor = TextSecondary,
                     testTag = "btn_dialog_cancel_book"

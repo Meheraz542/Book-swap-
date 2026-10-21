@@ -55,7 +55,7 @@ class FirebaseFirestoreManager(private val context: Context) {
     // USERS COLLECTION (/users)
     // -------------------------------------------------------------
 
-    suspend fun saveUserProfile(user: UserProfile) {
+    suspend fun saveUserProfile(user: UserProfile) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
         try {
             val userMap = hashMapOf(
                 "id" to user.id,
@@ -75,7 +75,11 @@ class FirebaseFirestoreManager(private val context: Context) {
                 .await()
             Log.d(tag, "User saved to Firestore: ${user.id} (${user.email})")
         } catch (e: Exception) {
-            Log.e(tag, "Failed to save user profile", e)
+            if (e is kotlin.coroutines.cancellation.CancellationException) {
+                // Ignore composition cancellation
+                throw e
+            }
+            Log.w(tag, "Failed to save user profile: ${e.message}")
         }
     }
 
@@ -164,7 +168,8 @@ class FirebaseFirestoreManager(private val context: Context) {
                     "author" to book.author,
                     "edition" to book.edition,
                     "bookCode" to book.bookCode,
-                    "condition" to book.condition
+                    "condition" to book.condition,
+                    "imageUris" to book.imageUris
                 )
             }
 
@@ -269,7 +274,8 @@ class FirebaseFirestoreManager(private val context: Context) {
                 author = bMap["author"] as? String ?: "",
                 edition = bMap["edition"] as? String ?: "",
                 bookCode = bMap["bookCode"] as? String ?: "",
-                condition = bMap["condition"] as? String ?: "Good"
+                condition = bMap["condition"] as? String ?: "Good",
+                imageUris = (bMap["imageUris"] as? List<String>) ?: emptyList()
             )
         }
 

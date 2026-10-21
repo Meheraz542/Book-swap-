@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -113,19 +114,30 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // Avatar with online status
+                    // Avatar with online status (blank by default if no photo)
                     Box {
                         Surface(
                             modifier = Modifier.size(42.dp),
                             shape = CircleShape,
-                            color = PrimaryPurpleLight
+                            color = Color(0xFFE2E8F0)
                         ) {
-                            Image(
-                                painter = painterResource(id = conversation.otherUserAvatarRes ?: R.drawable.avatar_rahim_1789677826412),
-                                contentDescription = conversation.otherUserName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (conversation.otherUserAvatarRes != null) {
+                                Image(
+                                    painter = painterResource(id = conversation.otherUserAvatarRes),
+                                    contentDescription = conversation.otherUserName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Person,
+                                        contentDescription = "No avatar displayed",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
                         }
                         if (conversation.isOnline) {
                             Box(
@@ -200,7 +212,8 @@ fun ChatScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.navigationBars),
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .imePadding(),
                 color = Color.White.copy(alpha = 0.96f),
                 shadowElevation = 8.dp,
                 border = BorderStroke(1.dp, Color(0xFFE2E8F0))

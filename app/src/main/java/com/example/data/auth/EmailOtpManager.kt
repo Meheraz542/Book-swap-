@@ -105,8 +105,8 @@ class EmailOtpManager(private val context: Context) {
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
             return OtpResult.Error("অনুগ্রহ করে একটি সঠিক জিমেইল/ইমেইল দিন (Please enter a valid email address).")
         }
-        if (password.length < 4) {
-            return OtpResult.Error("পাসওয়ার্ড ন্যূনতম ৪ অক্ষরের হতে হবে (Password must be at least 4 characters).")
+        if (password.length < 6) {
+            return OtpResult.Error("পাসওয়ার্ড ন্যূনতম ৬ অক্ষরের হতে হবে (Password must be at least 6 characters).")
         }
         if (trimmedPhone.length < 6) {
             return OtpResult.Error("অনুগ্রহ করে একটি সচল ফোন নম্বর দিন (Please enter a valid phone number).")

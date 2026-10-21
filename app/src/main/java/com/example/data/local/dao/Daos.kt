@@ -47,6 +47,9 @@ interface UserDao {
 
     @Query("DELETE FROM users WHERE role != 'ADMIN'")
     suspend fun clearNonAdminUsers()
+
+    @Query("UPDATE users SET profilePhotoRes = NULL")
+    suspend fun clearAllProfilePhotoRes()
 }
 
 @Dao

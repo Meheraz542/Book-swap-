@@ -72,7 +72,9 @@ data class IncludedBookEntity(
     val author: String = "",
     val edition: String = "",
     val bookCode: String = "",
-    val condition: String = "Good"
+    val condition: String = "Good",
+    val image1Uri: String = "",
+    val image2Uri: String = ""
 )
 
 data class BookSetWithBooks(

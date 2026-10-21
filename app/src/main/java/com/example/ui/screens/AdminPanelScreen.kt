@@ -318,39 +318,52 @@ fun AdminPanelScreen(
                     // Live Telemetry Controls
                     item {
                         GlassCard(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = "⚡ Live Telemetry Actions",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.5.sp,
-                                color = TextPrimary
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                FrostedGlassButton(
-                                    text = "+1 Visit",
-                                    onClick = { MarketplaceRepository.recordVisit() },
-                                    textColor = AccentBlue,
-                                    modifier = Modifier.weight(1f),
-                                    height = 36.dp
+                                Text(
+                                    text = "⚡ Live Telemetry Controls",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.5.sp,
+                                    color = TextPrimary
                                 )
-                                FrostedGlassButton(
-                                    text = "+1 Book Check",
-                                    onClick = { MarketplaceRepository.recordBookCheck() },
-                                    textColor = Color(0xFF10B981),
-                                    modifier = Modifier.weight(1f),
-                                    height = 36.dp
-                                )
-                                FrostedGlassButton(
-                                    text = "Reset Counters",
-                                    onClick = { MarketplaceRepository.resetTrafficStats() },
-                                    textColor = Color(0xFFEF4444),
-                                    modifier = Modifier.weight(1.2f),
-                                    height = 36.dp
-                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFF1F5F9)
+                                ) {
+                                    Text(
+                                        text = "Interaction-Driven",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = PrimaryPurple,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(
+                                text = "Telemetry counters strictly increment with actual student interactions (real visits, book searches & views, chat messages, and student signups).",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            FrostedGlassButton(
+                                text = "Reset All Counters to Zero",
+                                onClick = { MarketplaceRepository.resetTrafficStats() },
+                                textColor = Color(0xFFEF4444),
+                                icon = Icons.Outlined.RestartAlt,
+                                modifier = Modifier.fillMaxWidth(),
+                                height = 40.dp,
+                                testTag = "btn_reset_telemetry_counters"
+                            )
                         }
                     }
                 }

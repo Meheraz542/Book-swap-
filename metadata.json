@@ -1,5 +1,5 @@
 {
-  "name": "BookSwipe",
+  "name": "BookSwap",
   "description": "Diploma student used semester book set marketplace with soft neumorphic UI, realtime chat, and Mega Deal workflow",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

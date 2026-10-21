@@ -1133,7 +1133,7 @@ private fun HomeHeader(
             ) {
                 Image(
                     painter = painterResource(id = com.example.R.drawable.ic_bookswipe_logo),
-                    contentDescription = "BookSwipe Logo",
+                    contentDescription = "BookSwap Logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -1141,7 +1141,7 @@ private fun HomeHeader(
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "BookSwipe",
+                    text = "BookSwap",
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = PrimaryPurple,

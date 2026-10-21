@@ -51,7 +51,8 @@ data class IncludedBook(
     val author: String = "",
     val edition: String = "",
     val bookCode: String = "",
-    val condition: String = "Good"
+    val condition: String = "Good",
+    val imageUris: List<String> = emptyList()
 )
 
 data class BookSet(
@@ -154,12 +155,12 @@ data class AppNotification(
 )
 
 data class AppTrafficStats(
-    val dailyActiveUsers: Int = 184,
-    val totalVisitsToday: Int = 1420,
-    val bookChecksToday: Int = 680,
-    val chatInquiriesToday: Int = 92,
-    val fpiTrafficShare: Int = 68,
-    val fciTrafficShare: Int = 32,
-    val peakHour: String = "10:30 AM - 1:30 PM",
-    val newSignupsToday: Int = 14
+    val dailyActiveUsers: Int = 0,
+    val totalVisitsToday: Int = 0,
+    val bookChecksToday: Int = 0,
+    val chatInquiriesToday: Int = 0,
+    val fpiTrafficShare: Int = 0,
+    val fciTrafficShare: Int = 0,
+    val peakHour: String = "No traffic yet",
+    val newSignupsToday: Int = 0
 )

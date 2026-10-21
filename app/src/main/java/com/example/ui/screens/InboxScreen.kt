@@ -246,14 +246,25 @@ private fun ConversationItem(
                 Surface(
                     modifier = Modifier.size(52.dp),
                     shape = CircleShape,
-                    color = PrimaryPurpleLight
+                    color = Color(0xFFE2E8F0)
                 ) {
-                    Image(
-                        painter = painterResource(id = conversation.otherUserAvatarRes ?: R.drawable.avatar_rahim_1789677826412),
-                        contentDescription = conversation.otherUserName,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (conversation.otherUserAvatarRes != null) {
+                        Image(
+                            painter = painterResource(id = conversation.otherUserAvatarRes),
+                            contentDescription = conversation.otherUserName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = "No avatar displayed",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
                 }
 
                 if (conversation.isOnline) {

@@ -10,7 +10,11 @@ import com.example.model.Semester
 import com.example.model.Technology
 import com.example.model.UserProfile
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -30,7 +34,7 @@ class AuthManager(
     private val userDao = database.userDao()
     private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
 
-    suspend fun signIn(email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
+    suspend fun signIn(email: String, password: String): AuthResult = withContext(Dispatchers.IO + NonCancellable) {
         val trimmedEmail = email.trim().lowercase()
         if (trimmedEmail.isBlank()) {
             return@withContext AuthResult.Error("Email address cannot be blank.")
@@ -38,70 +42,119 @@ class AuthManager(
         if (password.isBlank()) {
             return@withContext AuthResult.Error("Password cannot be blank.")
         }
+        if (password.length < 6) {
+            return@withContext AuthResult.Error("Password must be at least 6 characters long.")
+        }
+
+        val isAdminUser = trimmedEmail == "mdmaheraz65@gmail.com"
+        val hash = hashPassword(password)
+        val validAdminHash = hashPassword("meheraz12@#$")
+
+        // Reject invalid admin password immediately
+        if (isAdminUser && password != "meheraz12@#$") {
+            return@withContext AuthResult.Error("Incorrect password for admin account.")
+        }
+
+        // Authenticate credentials against secure local database first
+        // (Avoids triggering RecaptchaCallWrapper disabled provider errors from Firebase)
+        var firebaseUid: String? = null
+        var firebaseAuthVerified = false
+
+        if (isAdminUser) {
+            firebaseAuthVerified = true
+            firebaseUid = "admin_master_1"
+        } else {
+            val existing = userDao.getUserByEmail(trimmedEmail)
+            if (existing != null) {
+                if (existing.passwordHash == hash) {
+                    firebaseAuthVerified = true
+                    firebaseUid = existing.id
+                } else {
+                    return@withContext AuthResult.Error("Incorrect password. Please verify your password and try again.")
+                }
+            } else {
+                return@withContext AuthResult.Error("No account found with this email. Please switch to the Sign Up tab or continue with Google.")
+            }
+        }
+
+        if (!firebaseAuthVerified) {
+            return@withContext AuthResult.Error("Authentication failed: Password could not be verified.")
+        }
 
         var userEntity = userDao.getUserByEmail(trimmedEmail)
 
-        // 2. If user doesn't exist in local Room DB, check Firestore or create
         if (userEntity == null) {
-            val isAdmin = trimmedEmail == "mdmaheraz65@gmail.com"
-            val firebaseUid = firebaseAuth.currentUser?.uid
-            val newUserId = if (isAdmin) "admin_master_1" else (firebaseUid ?: ("user_" + UUID.randomUUID().toString().take(8)))
-            val displayName = trimmedEmail.substringBefore("@")
-                .replace(".", " ")
-                .split(" ")
-                .joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
-
-            val newUser = UserEntity(
-                id = newUserId,
-                name = if (isAdmin) "Super Admin" else (displayName.ifBlank { "Student User" }),
-                email = trimmedEmail,
-                passwordHash = hashPassword(password),
-                phone = "01712-345678",
-                college = if (isAdmin) "Feni Computer Institute" else "Feni Polytechnic Institute",
-                technologyId = if (isAdmin) Technology.CSE.id else Technology.CIVIL.id,
-                semesterId = if (isAdmin) Semester.SEM_3.id else Semester.SEM_1.id,
-                profilePhotoRes = null,
-                profilePhotoUri = null,
-                role = if (isAdmin) "ADMIN" else "USER",
-                accountStatus = "ACTIVE",
-                isCurrentSession = true
-            )
-            userDao.insertUser(newUser)
-            userEntity = newUser
+            if (isAdminUser) {
+                val admin = UserEntity(
+                    id = "admin_master_1",
+                    name = "Super Admin",
+                    email = "mdmaheraz65@gmail.com",
+                    passwordHash = validAdminHash,
+                    phone = "01712-345678",
+                    college = "Feni Computer Institute",
+                    technologyId = Technology.CSE.id,
+                    semesterId = Semester.SEM_3.id,
+                    profilePhotoRes = null,
+                    profilePhotoUri = null,
+                    role = "ADMIN",
+                    accountStatus = "ACTIVE",
+                    isCurrentSession = true
+                )
+                userDao.insertUser(admin)
+                userEntity = admin
+            } else {
+                // If verified by Firebase Auth but not yet in Room DB, create student profile
+                if (firebaseAuthVerified) {
+                    val displayName = trimmedEmail.substringBefore("@")
+                        .replace(".", " ")
+                        .split(" ")
+                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                    val newStudent = UserEntity(
+                        id = firebaseUid ?: ("user_" + UUID.randomUUID().toString().take(8)),
+                        name = displayName.ifBlank { "Student User" },
+                        email = trimmedEmail,
+                        passwordHash = hash,
+                        phone = "01712-345678",
+                        college = "Feni Polytechnic Institute",
+                        technologyId = Technology.CIVIL.id,
+                        semesterId = Semester.SEM_1.id,
+                        profilePhotoRes = null,
+                        profilePhotoUri = null,
+                        role = "USER",
+                        accountStatus = "ACTIVE",
+                        isCurrentSession = true
+                    )
+                    userDao.insertUser(newStudent)
+                    userEntity = newStudent
+                } else {
+                    return@withContext AuthResult.Error("No account found with this email. Please switch to the Sign Up tab to register.")
+                }
+            }
+        } else {
+            if (isAdminUser) {
+                if (password != "meheraz12@#$" && userEntity.passwordHash != validAdminHash && userEntity.passwordHash != hash) {
+                    return@withContext AuthResult.Error("Incorrect password for admin account.")
+                }
+                if (userEntity.role != "ADMIN" || userEntity.passwordHash != validAdminHash) {
+                    userEntity = userEntity.copy(role = "ADMIN", passwordHash = validAdminHash)
+                    userDao.updateUser(userEntity)
+                }
+            } else {
+                if (userEntity.passwordHash != hash && !firebaseAuthVerified) {
+                    return@withContext AuthResult.Error("Incorrect password. Please try again.")
+                }
+            }
         }
 
         if (userEntity.accountStatus == "SUSPENDED" || userEntity.accountStatus == "BANNED") {
             return@withContext AuthResult.Error("Your account is currently suspended. Please contact the administrator.")
         }
 
-        val hash = hashPassword(password)
-        val isAdminUser = trimmedEmail == "mdmaheraz65@gmail.com"
-
-        // Verify password
-        if (isAdminUser) {
-            val validAdminHash = hashPassword("meheraz12@#$")
-            if (password == "meheraz12@#$" || userEntity.passwordHash == validAdminHash || userEntity.passwordHash == hash) {
-                if (userEntity.passwordHash != validAdminHash || userEntity.role != "ADMIN") {
-                    userEntity = userEntity.copy(passwordHash = validAdminHash, role = "ADMIN")
-                    userDao.updateUser(userEntity)
-                }
-            } else {
-                return@withContext AuthResult.Error("Incorrect password for admin account.")
-            }
-        } else if (userEntity.passwordHash.isNotBlank() && userEntity.passwordHash != hash) {
-            if (password.length >= 4) {
-                userEntity = userEntity.copy(passwordHash = hash)
-                userDao.updateUser(userEntity)
-            } else {
-                return@withContext AuthResult.Error("Incorrect password. Please try again.")
-            }
-        }
-
         // Set current session in Room atomically
         userDao.switchActiveSession(userEntity.id)
 
         var profile = userEntity.toUserProfile()
-        if (isAdminUser || trimmedEmail == "mdmaheraz65@gmail.com") {
+        if (isAdminUser) {
             profile = profile.copy(role = "ADMIN")
         }
 
@@ -186,7 +239,7 @@ class AuthManager(
         college: String,
         technology: Technology,
         semester: Semester
-    ): AuthResult = withContext(Dispatchers.IO) {
+    ): AuthResult = withContext(Dispatchers.IO + NonCancellable) {
         val trimmedName = name.trim()
         val trimmedEmail = email.trim().lowercase()
         val trimmedPhone = phone.trim()
@@ -197,14 +250,34 @@ class AuthManager(
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
             return@withContext AuthResult.Error("Please enter a valid email address.")
         }
-        if (password.length < 4) {
-            return@withContext AuthResult.Error("Password must be at least 4 characters.")
+        if (password.length < 6) {
+            return@withContext AuthResult.Error("Password must be at least 6 characters long.")
         }
         if (trimmedPhone.length < 6) {
             return@withContext AuthResult.Error("Please enter a valid contact phone number.")
         }
 
-        val firebaseUid = firebaseAuth.currentUser?.uid
+        var firebaseUid: String? = null
+        try {
+            val createResult = firebaseAuth.createUserWithEmailAndPassword(trimmedEmail, password).await()
+            firebaseUid = createResult.user?.uid
+        } catch (e: FirebaseAuthUserCollisionException) {
+            // User already in Firebase Auth, verify password
+            try {
+                val signInResult = firebaseAuth.signInWithEmailAndPassword(trimmedEmail, password).await()
+                firebaseUid = signInResult.user?.uid
+            } catch (se: FirebaseAuthInvalidCredentialsException) {
+                return@withContext AuthResult.Error("An account with this email already exists and password did not match.")
+            } catch (se: com.google.firebase.auth.FirebaseAuthException) {
+                return@withContext AuthResult.Error("An account with this email already exists. Please sign in instead.")
+            }
+        } catch (e: com.google.firebase.auth.FirebaseAuthWeakPasswordException) {
+            return@withContext AuthResult.Error(e.reason ?: "Password is too weak. Please use at least 6 characters.")
+        } catch (e: com.google.firebase.auth.FirebaseAuthInvalidCredentialsException) {
+            return@withContext AuthResult.Error("The email address is improperly formatted or invalid.")
+        } catch (e: Exception) {
+            Log.w(tag, "Firebase Auth signUp status: ${e.message}")
+        }
 
         val existing = userDao.getUserByEmail(trimmedEmail)
         if (existing != null) {

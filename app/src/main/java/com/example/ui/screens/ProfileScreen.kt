@@ -159,13 +159,28 @@ fun ProfileScreen(
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
-                                } else {
+                                } else if (currentUser.profilePhotoRes != null) {
                                     Image(
-                                        painter = painterResource(id = currentUser.profilePhotoRes ?: R.drawable.avatar_rahim_1789677826412),
+                                        painter = painterResource(id = currentUser.profilePhotoRes!!),
                                         contentDescription = "Profile Photo",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
+                                } else {
+                                    // Default profile picture is blank/empty for all accounts so no avatar is displayed
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color(0xFFE2E8F0)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Person,
+                                            contentDescription = "No avatar displayed",
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -218,6 +233,19 @@ fun ProfileScreen(
                                 color = PrimaryPurple,
                                 fontWeight = FontWeight.SemiBold
                             )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Edit Button to update all profile fields
+                            FrostedGlassButton(
+                                text = "Edit Profile",
+                                onClick = { showEditProfileDialog = true },
+                                icon = Icons.Outlined.Edit,
+                                textColor = PrimaryPurple,
+                                modifier = Modifier.fillMaxWidth(0.55f),
+                                height = 38.dp,
+                                testTag = "btn_edit_profile"
+                            )
                         } else {
                             Text(
                                 text = "Guest Student (Logged Out)",
@@ -249,12 +277,39 @@ fun ProfileScreen(
             // Account Information Section
             item {
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Account Information",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Account Information",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        if (isLoggedIn) {
+                            TextButton(
+                                onClick = { showEditProfileDialog = true },
+                                modifier = Modifier.testTag("btn_edit_account_info")
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Edit,
+                                    contentDescription = "Edit Profile",
+                                    tint = PrimaryPurple,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Edit",
+                                    color = PrimaryPurple,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -414,7 +469,7 @@ fun ProfileScreen(
                     Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
                     ProfileMenuRow(icon = Icons.Outlined.HelpOutline, title = "Help & Support")
                     Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
-                    ProfileMenuRow(icon = Icons.Outlined.Info, title = "About BookSwipe v1.0.0")
+                    ProfileMenuRow(icon = Icons.Outlined.Info, title = "About BookSwap v1.0.0")
                 }
             }
 
@@ -922,6 +977,10 @@ fun ProfileScreen(
                                 }
                                 if (signInPassword.isBlank()) {
                                     authError = "Please enter your password."
+                                    return@Button
+                                }
+                                if (signInPassword.length < 6) {
+                                    authError = "Password must be at least 6 characters long."
                                     return@Button
                                 }
                                 coroutineScope.launch {

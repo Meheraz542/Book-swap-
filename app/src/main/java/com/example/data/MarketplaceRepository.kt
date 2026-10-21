@@ -12,12 +12,14 @@ import com.example.data.local.entities.*
 import com.example.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import android.util.Log
 import com.example.data.remote.FirebaseFirestoreManager
@@ -37,7 +39,20 @@ object MarketplaceRepository {
     val pendingOtpEmail: StateFlow<String?> = _pendingOtpEmail.asStateFlow()
 
     // Default Super Admin profile for seamless testing & initial state
-    private val defaultAdminProfile = UserProfile(
+    private val emptyGuestProfile = UserProfile(
+        id = "",
+        name = "Student",
+        email = "",
+        phone = "",
+        college = "Feni Polytechnic Institute",
+        technology = Technology.CIVIL,
+        currentSemester = Semester.SEM_1,
+        profilePhotoRes = null,
+        role = "USER",
+        accountStatus = "ACTIVE"
+    )
+
+    val defaultAdminProfile = UserProfile(
         id = "admin_master_1",
         name = "Super Admin",
         email = "mdmaheraz65@gmail.com",
@@ -50,12 +65,18 @@ object MarketplaceRepository {
         accountStatus = "ACTIVE"
     )
 
-    // Current Logged in User
+    // Current User profile (default admin profile for test harness, but unauthenticated until login)
     private val _currentUser = MutableStateFlow(defaultAdminProfile)
     val currentUser: StateFlow<UserProfile> = _currentUser.asStateFlow()
 
-    // Logged in state: defaults to false so the user is directed to login or sign-up immediately upon opening
-    private val _isLoggedIn = MutableStateFlow(false)
+    // Logged in state: check Firebase Authentication directly on app start
+    private val _isLoggedIn = MutableStateFlow(
+        try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null
+        } catch (e: Exception) {
+            false
+        }
+    )
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
     // All Book Sets
@@ -166,14 +187,61 @@ object MarketplaceRepository {
             // Purge legacy demo seed data from Room DB if present
             cleanDemoDataFromDatabaseIfPresent(db)
 
-            // Direct users to login or sign-up page immediately upon opening
-            db.userDao().clearCurrentSession()
+            // Ensure all existing user records have blank default profile picture (no avatar displayed)
+            db.userDao().clearAllProfilePhotoRes()
+
+            // Check Firebase Authentication on app start
+            val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            if (firebaseUser != null) {
+                val email = firebaseUser.email?.trim()?.lowercase() ?: ""
+                val existing = if (email.isNotEmpty()) {
+                    db.userDao().getUserByEmail(email)
+                } else {
+                    db.userDao().getUserById(firebaseUser.uid)
+                }
+
+                if (existing != null) {
+                    db.userDao().switchActiveSession(existing.id)
+                    _currentUser.value = existing.toDomain().copy(profilePhotoRes = null)
+                    _isLoggedIn.value = true
+                } else {
+                    val isAdmin = email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
+                    val newEntity = UserEntity(
+                        id = firebaseUser.uid,
+                        name = firebaseUser.displayName ?: if (isAdmin) "Super Admin" else "Student User",
+                        email = email,
+                        passwordHash = "",
+                        phone = "01712-345678",
+                        college = if (isAdmin) "Feni Computer Institute" else "Feni Polytechnic Institute",
+                        technologyId = if (isAdmin) Technology.CSE.id else Technology.CIVIL.id,
+                        semesterId = if (isAdmin) Semester.SEM_3.id else Semester.SEM_1.id,
+                        profilePhotoRes = null,
+                        profilePhotoUri = null,
+                        role = if (isAdmin) "ADMIN" else "USER",
+                        accountStatus = "ACTIVE",
+                        isCurrentSession = true
+                    )
+                    db.userDao().insertUser(newEntity)
+                    db.userDao().switchActiveSession(newEntity.id)
+                    _currentUser.value = newEntity.toDomain()
+                    _isLoggedIn.value = true
+                }
+            } else {
+                // If not in Firebase Auth, check if local Room session was active
+                val currentLocal = db.userDao().getCurrentUser()
+                if (currentLocal != null && currentLocal.isCurrentSession) {
+                    _currentUser.value = currentLocal.toDomain().copy(profilePhotoRes = null)
+                    _isLoggedIn.value = true
+                } else {
+                    _isLoggedIn.value = false
+                }
+            }
 
             // Collect real-time updates from Room DB
             launch {
                 db.userDao().getCurrentUserFlow().collect { userEntity ->
                     if (userEntity != null && userEntity.isCurrentSession) {
-                        _currentUser.value = userEntity.toDomain()
+                        _currentUser.value = userEntity.toDomain().copy(profilePhotoRes = null)
                         _isLoggedIn.value = true
                     } else if (userEntity == null) {
                         _isLoggedIn.value = false
@@ -212,11 +280,18 @@ object MarketplaceRepository {
             }
 
             launch {
-                db.chatDao().getAllConversationsFlow().collect { convs ->
-                    db.chatDao().getAllMessagesFlow().collect { messages ->
-                        if (_conversations.value.isEmpty() && convs.isNotEmpty()) {
-                            _conversations.value = convs.map { it.toDomain(messages) }
-                        }
+                kotlinx.coroutines.flow.combine(
+                    db.chatDao().getAllConversationsFlow(),
+                    db.chatDao().getAllMessagesFlow()
+                ) { convs, messages ->
+                    if (convs.isNotEmpty()) {
+                        convs.map { it.toDomain(messages) }
+                    } else {
+                        emptyList()
+                    }
+                }.collect { domainConvs ->
+                    if (_conversations.value.isEmpty() && domainConvs.isNotEmpty()) {
+                        _conversations.value = domainConvs
                     }
                 }
             }
@@ -343,6 +418,7 @@ object MarketplaceRepository {
             timestamp = "Just now",
             isMe = true
         )
+        recordChatInquiry()
         _conversations.update { list ->
             list.map { conv ->
                 if (conv.id == conversationId) {
@@ -416,6 +492,7 @@ object MarketplaceRepository {
         }
         if (existing != null) return existing.id
 
+        recordChatInquiry()
         val newId = "conv_" + UUID.randomUUID().toString().take(8)
         val initialMsg = ChatMessage(
             id = "msg_" + UUID.randomUUID().toString().take(8),
@@ -621,6 +698,9 @@ object MarketplaceRepository {
             currentSemester = sem
         )
         _currentUser.value = updated
+        _allUsers.update { list ->
+            list.map { if (it.id == updated.id) updated else it }
+        }
 
         database?.let { db ->
             scope.launch(Dispatchers.IO) {
@@ -636,6 +716,11 @@ object MarketplaceRepository {
                             semesterId = sem.id
                         )
                     )
+                }
+                try {
+                    firestoreManager?.saveUserProfile(updated)
+                } catch (e: Exception) {
+                    Log.w("MarketplaceRepo", "Failed to sync updated profile to Firestore: ${e.message}")
                 }
             }
         }
@@ -668,19 +753,16 @@ object MarketplaceRepository {
         _isLoggedIn.value = true
     }
 
-    suspend fun performSignIn(email: String, password: String): AuthResult {
-        val auth = authManager
-        if (auth == null) {
-            // Immediate in-memory success if DB not ready
-            _isLoggedIn.value = true
-            return AuthResult.Success(_currentUser.value)
-        }
+    suspend fun performSignIn(email: String, password: String): AuthResult = withContext(Dispatchers.IO + NonCancellable) {
+        val auth = authManager ?: return@withContext AuthResult.Error("Authentication service is initializing. Please try again.")
         val result = auth.signIn(email, password)
         if (result is AuthResult.Success) {
             _currentUser.value = result.user
             _isLoggedIn.value = true
+        } else {
+            _isLoggedIn.value = false
         }
-        return result
+        result
     }
 
     suspend fun performSignUp(
@@ -691,31 +773,16 @@ object MarketplaceRepository {
         college: String,
         technology: Technology,
         semester: Semester
-    ): AuthResult {
-        val auth = authManager
-        if (auth == null) {
-            val user = UserProfile(
-                id = "user_" + UUID.randomUUID().toString().take(8),
-                name = name,
-                email = email,
-                phone = phone,
-                college = college,
-                technology = technology,
-                currentSemester = semester,
-                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
-                role = "USER",
-                accountStatus = "ACTIVE"
-            )
-            _currentUser.value = user
-            _isLoggedIn.value = true
-            return AuthResult.Success(user)
-        }
+    ): AuthResult = withContext(Dispatchers.IO + NonCancellable) {
+        val auth = authManager ?: return@withContext AuthResult.Error("Authentication service is initializing. Please try again.")
         val result = auth.signUp(name, email, password, phone, college, technology, semester)
         if (result is AuthResult.Success) {
             _currentUser.value = result.user
             _isLoggedIn.value = true
+        } else {
+            _isLoggedIn.value = false
         }
-        return result
+        result
     }
 
     fun addNotification(notif: AppNotification) {
@@ -841,7 +908,7 @@ object MarketplaceRepository {
                 college = college,
                 technology = technology,
                 currentSemester = semester,
-                profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                profilePhotoRes = null,
                 profilePhotoUri = photoUrl,
                 role = if (email.equals("mdmaheraz65@gmail.com", ignoreCase = true)) "ADMIN" else "USER",
                 accountStatus = "ACTIVE"
@@ -1020,7 +1087,7 @@ object MarketplaceRepository {
             college = college,
             technology = technology,
             currentSemester = semester,
-            profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+            profilePhotoRes = null,
             role = role,
             accountStatus = "ACTIVE"
         )
@@ -1036,7 +1103,7 @@ object MarketplaceRepository {
                     college = college,
                     technologyId = technology.id,
                     semesterId = semester.id,
-                    profilePhotoRes = R.drawable.avatar_rahim_1789677826412,
+                    profilePhotoRes = null,
                     role = role,
                     accountStatus = "ACTIVE",
                     isCurrentSession = false
@@ -1045,24 +1112,52 @@ object MarketplaceRepository {
         }
     }
 
-    // Admin: Reset / Refresh Traffic Telemetry Counters
+    // Admin: Reset / Refresh Traffic Telemetry Counters to Zero
     fun resetTrafficStats() {
         _trafficStats.value = AppTrafficStats(
-            dailyActiveUsers = 1,
-            totalVisitsToday = 1,
+            dailyActiveUsers = 0,
+            totalVisitsToday = 0,
             bookChecksToday = 0,
-            chatInquiriesToday = 0
+            chatInquiriesToday = 0,
+            fpiTrafficShare = 0,
+            fciTrafficShare = 0,
+            peakHour = "No traffic yet",
+            newSignupsToday = 0
         )
     }
 
-    // Record Book check / page view
+    fun deleteSet(setId: String) {
+        adminDeleteSet(setId)
+    }
+
+    // Record Book check / page view from actual user interaction
     fun recordBookCheck() {
         _trafficStats.update { it.copy(bookChecksToday = it.bookChecksToday + 1) }
     }
 
-    // Record App Visit
+    // Record App Visit from actual user launch / navigation
     fun recordVisit() {
-        _trafficStats.update { it.copy(totalVisitsToday = it.totalVisitsToday + 1) }
+        _trafficStats.update {
+            val visits = it.totalVisitsToday + 1
+            it.copy(
+                totalVisitsToday = visits,
+                dailyActiveUsers = if (it.dailyActiveUsers == 0) 1 else it.dailyActiveUsers
+            )
+        }
+    }
+
+    // Record Chat inquiry from actual user message
+    fun recordChatInquiry() {
+        _trafficStats.update {
+            it.copy(chatInquiriesToday = it.chatInquiriesToday + 1)
+        }
+    }
+
+    // Record new signup from actual user registration
+    fun recordNewSignup() {
+        _trafficStats.update {
+            it.copy(newSignupsToday = it.newSignupsToday + 1)
+        }
     }
 
     // Mark notification as read
@@ -1130,6 +1225,7 @@ object MarketplaceRepository {
     }
 
     private fun IncludedBookEntity.toDomain(): IncludedBook {
+        val imgs = listOfNotNull(image1Uri.ifBlank { null }, image2Uri.ifBlank { null })
         return IncludedBook(
             id = id,
             setId = setId,
@@ -1138,7 +1234,8 @@ object MarketplaceRepository {
             author = author,
             edition = edition,
             bookCode = bookCode,
-            condition = condition
+            condition = condition,
+            imageUris = imgs
         )
     }
 
@@ -1177,7 +1274,9 @@ object MarketplaceRepository {
             author = author,
             edition = edition,
             bookCode = bookCode,
-            condition = condition
+            condition = condition,
+            image1Uri = imageUris.getOrNull(0) ?: "",
+            image2Uri = imageUris.getOrNull(1) ?: ""
         )
     }
 

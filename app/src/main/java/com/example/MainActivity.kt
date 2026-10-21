@@ -6,14 +6,32 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.MarketplaceRepository
 import com.example.model.BookSet
 import com.example.model.Conversation
@@ -24,6 +42,7 @@ import com.example.ui.components.FloatingBottomNavBar
 import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.delay
 
 sealed class AppDestination {
     data object Main : AppDestination()
@@ -48,21 +67,110 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp() {
     val isLoggedIn by MarketplaceRepository.isLoggedIn.collectAsState()
+    var isAppLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(750)
+        isAppLoading = false
+    }
 
     Crossfade(
-        targetState = isLoggedIn,
-        animationSpec = tween(300),
-        label = "authCrossfade"
-    ) { loggedIn ->
-        if (!loggedIn) {
-            AuthScreen(
-                onAuthSuccess = {
-                    // User authenticated, main app will display smoothly
-                },
-                onDismiss = null
-            )
+        targetState = isAppLoading,
+        animationSpec = tween(400),
+        label = "splashCrossfade"
+    ) { loading ->
+        if (loading) {
+            AppLoadingSplashScreen()
         } else {
-            MainAppContent()
+            Crossfade(
+                targetState = isLoggedIn,
+                animationSpec = tween(300),
+                label = "authCrossfade"
+            ) { loggedIn ->
+                if (!loggedIn) {
+                    AuthScreen(
+                        onAuthSuccess = {
+                            // User authenticated, main app will display smoothly
+                        },
+                        onDismiss = null
+                    )
+                } else {
+                    MainAppContent()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Premium in-app loading splash screen featuring the official app icon.
+ */
+@Composable
+fun AppLoadingSplashScreen() {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF120B13)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(26.dp),
+                color = Color.Black,
+                shadowElevation = 16.dp,
+                modifier = Modifier
+                    .size(112.dp)
+                    .scale(scale)
+                    .clip(RoundedCornerShape(26.dp))
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_bookswipe_logo),
+                    contentDescription = "BookSwap App Icon",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Text(
+                text = "BookSwap",
+                fontSize = 25.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                letterSpacing = 0.6.sp
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "Campus Book Marketplace",
+                fontSize = 13.sp,
+                color = Color(0xFFA1A1AA),
+                fontWeight = FontWeight.Medium
+            )
+
+            Spacer(modifier = Modifier.height(30.dp))
+
+            CircularProgressIndicator(
+                color = Color(0xFFE11D48),
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.5.dp
+            )
         }
     }
 }
