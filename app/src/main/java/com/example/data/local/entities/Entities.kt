@@ -111,13 +111,21 @@ data class ConversationEntity(
     val otherUserName: String,
     val otherUserCollege: String,
     val otherUserAvatarRes: Int? = null,
+    val otherUserAvatarUri: String? = null,
+    val buyerName: String = "",
+    val buyerCollege: String = "",
+    val buyerAvatarUri: String? = null,
+    val sellerName: String = "",
+    val sellerCollege: String = "",
+    val sellerAvatarUri: String? = null,
     val setId: String,
     val setTitle: String,
     val setPrice: Int,
     val lastMessage: String,
     val timestamp: String,
     val unreadCount: Int = 0,
-    val isOnline: Boolean = true
+    val isOnline: Boolean = true,
+    val deletedByUserIds: String = ""
 )
 
 @Entity(
@@ -131,7 +139,9 @@ data class ChatMessageEntity(
     val senderName: String,
     val text: String,
     val timestamp: String,
-    val isMe: Boolean
+    val isMe: Boolean,
+    val senderAvatarUri: String? = null,
+    val senderAvatarRes: Int? = null
 )
 
 @Entity(tableName = "notifications")
@@ -164,3 +174,21 @@ fun UserEntity.toUserProfile(): UserProfile {
 }
 
 fun UserEntity.toDomain(): UserProfile = toUserProfile()
+
+fun UserProfile.toEntity(passwordHash: String = "", isCurrentSession: Boolean = false): UserEntity {
+    return UserEntity(
+        id = id,
+        name = name,
+        email = email,
+        passwordHash = passwordHash,
+        phone = phone,
+        college = college,
+        technologyId = technology.id,
+        semesterId = currentSemester.id,
+        profilePhotoRes = profilePhotoRes,
+        profilePhotoUri = profilePhotoUri,
+        role = role,
+        accountStatus = accountStatus,
+        isCurrentSession = isCurrentSession
+    )
+}

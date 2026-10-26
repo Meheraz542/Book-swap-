@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -26,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -48,8 +51,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -75,8 +81,7 @@ import kotlinx.coroutines.launch
  * Authentication Screen.
  *
  * Restored to the original clean Tabbed interface ("Sign In" / "Sign Up"):
- * - Email & Password authentication.
- * - Prominent "Sign in with Google" button directly below Email/Password.
+ * - Email & Password authentication only.
  * - Clean glassmorphism styling without any unnecessary promotional clutter.
  * - Sign Up tab for complete student registration.
  */
@@ -161,7 +166,54 @@ fun AuthScreen(
         }
     }
 
-    LiquidGlassBackdrop(modifier = modifier.fillMaxSize()) {
+    // Outer modern light-mode gradient canvas with luminous ambient blooms
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawBehind {
+                val w = size.width
+                val h = size.height
+
+                // Crisp Light Mode Canvas Base (Slate-to-Indigo gentle gradient)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color(0xFFF8FAFC), // Slate 50
+                            Color(0xFFEEF2FF), // Soft Indigo 50
+                            Color(0xFFF1F5F9), // Slate 100
+                            Color(0xFFE0E7FF)  // Light Indigo accent
+                        )
+                    )
+                )
+
+                // Top-Left Soft Violet Caustic Bloom
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFC4B5FD).copy(alpha = 0.50f), Color.Transparent),
+                        center = Offset(w * 0.16f, h * 0.15f),
+                        radius = w * 0.78f
+                    )
+                )
+
+                // Mid-Right Soft Cyan Caustic Bloom
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFBAE6FD).copy(alpha = 0.45f), Color.Transparent),
+                        center = Offset(w * 0.88f, h * 0.40f),
+                        radius = w * 0.72f
+                    )
+                )
+
+                // Bottom Ambient Indigo/Violet Bloom
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFA5B4FC).copy(alpha = 0.40f), Color.Transparent),
+                        center = Offset(w * 0.50f, h * 0.90f),
+                        radius = w * 0.80f
+                    )
+                )
+            }
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -169,7 +221,7 @@ fun AuthScreen(
                 .navigationBarsPadding()
                 .verticalScroll(scrollState)
                 .imePadding()
-                .padding(horizontal = 22.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Optional top back affordance if presented over the app
@@ -182,13 +234,14 @@ fun AuthScreen(
                         onClick = onDismiss,
                         modifier = Modifier
                             .size(40.dp)
-                            .shadow(2.dp, CircleShape)
-                            .background(Color.White.copy(alpha = 0.90f), CircleShape)
+                            .shadow(3.dp, CircleShape)
+                            .background(Color.White, CircleShape)
+                            .border(1.dp, Color(0xFFE2E8F0), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "Back to app",
-                            tint = PrimaryBlue,
+                            tint = Color(0xFF1E293B),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -198,18 +251,28 @@ fun AuthScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // App Logo Emblem - Official BookSwap Squircle Logo
+            // App Logo Emblem - Official BookSwap Squircle Logo on clean white surface
             Surface(
                 shape = RoundedCornerShape(22.dp),
-                color = Color.Black,
+                color = Color.White,
                 shadowElevation = 8.dp,
                 modifier = Modifier
                     .size(80.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .shadow(8.dp, RoundedCornerShape(22.dp), ambientColor = PrimaryBlueGlow, spotColor = PrimaryBlueGlow)
+                    .shadow(8.dp, RoundedCornerShape(22.dp), ambientColor = Color(0x206366F1), spotColor = Color(0x206366F1))
+                    .border(
+                        width = 1.5.dp,
+                        brush = Brush.linearGradient(
+                            listOf(
+                                Color.White,
+                                Color(0xFFE2E8F0)
+                            )
+                        ),
+                        shape = RoundedCornerShape(22.dp)
+                    )
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_bookswipe_logo),
+                    painter = painterResource(id = R.drawable.ic_bookswap_logo),
                     contentDescription = "BookSwap Logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -218,36 +281,72 @@ fun AuthScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // App Brand Name
+            // App Brand Name & Subtitle
             Text(
                 text = "BookSwap",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = TextPrimary,
+                color = Color(0xFF0F172A),
                 letterSpacing = 0.2.sp
             )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Student Book Marketplace",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF64748B)
+            )
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // =========================================================
-            // AUTH CARD (Pill Switcher + Forms)
+            // AUTH GLASS-CARD (Crisp Light Mode Frosted Glass Surface)
             // =========================================================
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(24.dp),
-                        backgroundColor = Color.White.copy(alpha = 0.92f),
-                        borderBrush = GlassRimBrush,
-                        borderWidth = 1.3.dp,
-                        elevation = 8.dp,
-                        shadowColor = SoftShadowColor,
-                        innerShadowColor = Color(0x08000000),
-                        innerHighlightColor = Color.White,
-                        showTopSheen = true
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(28.dp),
+                        ambientColor = Color(0x18000000),
+                        spotColor = Color(0x18000000)
                     )
-                    .padding(horizontal = 20.dp, vertical = 20.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.95f),
+                                Color.White.copy(alpha = 0.88f)
+                            )
+                        )
+                    )
+                    .border(
+                        width = 1.5.dp,
+                        brush = Brush.linearGradient(
+                            listOf(
+                                Color.White,
+                                Color(0xFFE2E8F0)
+                            )
+                        ),
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    .padding(horizontal = 20.dp, vertical = 22.dp)
             ) {
+                // Top Specular Sheen Highlight
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.88f)
+                        .height(4.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(top = 2.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.90f), Color.Transparent)
+                            )
+                        )
+                )
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -302,7 +401,7 @@ fun AuthScreen(
                             },
                             onVerify = {
                                 if (enteredOtpCode.length != 6) {
-                                    errorMessage = "অনুগ্রহ করে ৬-সংখ্যার ওটিপি কোডটি সম্পূর্ণ লিখুন।"
+                                    errorMessage = "Please enter the complete 6-digit OTP code."
                                     return@GmailOtpVerificationCard
                                 }
                                 isLoading = true
@@ -527,7 +626,35 @@ fun AuthScreen(
 }
 
 /**
- * Animated Pill Tab Switcher between "Sign In" and "Sign Up".
+ * Reusable light-mode frosted text field color palette with crisp slate borders and high-contrast text.
+ */
+@Composable
+private fun frostedInputColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = Color(0xFF6366F1),
+    unfocusedBorderColor = Color(0xFFCBD5E1),
+    focusedContainerColor = Color.White,
+    unfocusedContainerColor = Color(0xFFF8FAFC),
+    disabledContainerColor = Color(0xFFF1F5F9),
+    disabledBorderColor = Color(0xFFE2E8F0),
+    focusedTextColor = Color(0xFF0F172A),
+    unfocusedTextColor = Color(0xFF1E293B),
+    disabledTextColor = Color(0xFF64748B),
+    focusedLabelColor = Color(0xFF6366F1),
+    unfocusedLabelColor = Color(0xFF64748B),
+    disabledLabelColor = Color(0xFF94A3B8),
+    focusedLeadingIconColor = Color(0xFF6366F1),
+    unfocusedLeadingIconColor = Color(0xFF64748B),
+    disabledLeadingIconColor = Color(0xFF94A3B8),
+    focusedTrailingIconColor = Color(0xFF475569),
+    unfocusedTrailingIconColor = Color(0xFF64748B),
+    disabledTrailingIconColor = Color(0xFF94A3B8),
+    focusedPlaceholderColor = Color(0xFF94A3B8),
+    unfocusedPlaceholderColor = Color(0xFF94A3B8),
+    cursorColor = Color(0xFF6366F1)
+)
+
+/**
+ * Animated Pill Tab Switcher between "Sign In" and "Sign Up", styled with light frosted capsule dock.
  */
 @Composable
 private fun SmoothAuthTabSwitcher(
@@ -535,17 +662,18 @@ private fun SmoothAuthTabSwitcher(
     onTabSelected: (Boolean) -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(24.dp),
         color = Color(0xFFF1F5F9),
         border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
         modifier = Modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(48.dp)
+            .shadow(2.dp, RoundedCornerShape(24.dp), ambientColor = Color(0x10000000))
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(3.dp)
+                .padding(4.dp)
         ) {
             val tabWidth = maxWidth / 2
 
@@ -555,22 +683,41 @@ private fun SmoothAuthTabSwitcher(
                 label = "tab_offset"
             )
 
+            // Sliding Active Capsule with radiant purple-indigo gradient and specular border
             Box(
                 modifier = Modifier
                     .width(tabWidth)
                     .fillMaxHeight()
                     .offset(x = indicatorOffset)
-                    .shadow(3.dp, RoundedCornerShape(11.dp))
-                    .background(Color.White, RoundedCornerShape(11.dp))
+                    .shadow(4.dp, RoundedCornerShape(20.dp), ambientColor = Color(0x306366F1), spotColor = Color(0x306366F1))
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(0xFF7C3AED),
+                                Color(0xFF6366F1)
+                            )
+                        )
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.60f),
+                                Color.White.copy(alpha = 0.20f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(20.dp)
+                    )
             )
 
             Row(modifier = Modifier.fillMaxSize()) {
                 val signInColor by animateColorAsState(
-                    targetValue = if (!isRegisterTab) PrimaryBlue else TextSecondary,
+                    targetValue = if (!isRegisterTab) Color.White else Color(0xFF64748B),
                     label = "signInTabColor"
                 )
                 val signUpColor by animateColorAsState(
-                    targetValue = if (isRegisterTab) PrimaryBlue else TextSecondary,
+                    targetValue = if (isRegisterTab) Color.White else Color(0xFF64748B),
                     label = "signUpTabColor"
                 )
 
@@ -613,7 +760,7 @@ private fun SmoothAuthTabSwitcher(
 }
 
 /**
- * Sign In Form with Email and Password.
+ * Sign In Form with Email and Password using semi-transparent frosted styling.
  */
 @Composable
 private fun SignInForm(
@@ -631,19 +778,20 @@ private fun SignInForm(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Email Field
+        // Email Field with frosted styling
         OutlinedTextField(
             value = email,
             onValueChange = onEmailChange,
             label = { Text("Email Address") },
+            placeholder = { Text("e.g. student@fpi.edu.bd") },
             enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Email,
                     contentDescription = null,
-                    tint = PrimaryBlue
+                    tint = Color(0xFFA78BFA)
                 )
             },
             singleLine = true,
@@ -655,29 +803,25 @@ private fun SignInForm(
             keyboardActions = KeyboardActions(
                 onNext = { focusManager.moveFocus(FocusDirection.Down) }
             ),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFE2E8F0),
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color(0xFFFAFAFA)
-            ),
+            shape = RoundedCornerShape(16.dp),
+            colors = frostedInputColors(),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("input_signin_email")
         )
 
-        // Password Field
+        // Password Field with frosted styling
         OutlinedTextField(
             value = password,
             onValueChange = onPasswordChange,
             label = { Text("Password") },
+            placeholder = { Text("Enter your password") },
             enabled = !isLoading,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Lock,
                     contentDescription = null,
-                    tint = PrimaryBlue
+                    tint = Color(0xFFA78BFA)
                 )
             },
             trailingIcon = {
@@ -685,7 +829,7 @@ private fun SignInForm(
                     Icon(
                         imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
                         contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                        tint = TextSecondary
+                        tint = Color(0xFF64748B)
                     )
                 }
             },
@@ -702,13 +846,8 @@ private fun SignInForm(
                     onSignIn()
                 }
             ),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFE2E8F0),
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color(0xFFFAFAFA)
-            ),
+            shape = RoundedCornerShape(16.dp),
+            colors = frostedInputColors(),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("input_signin_password")
@@ -716,7 +855,7 @@ private fun SignInForm(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // Sign In Action Button
+        // Sign In Action Button (frosted glass button with gradient & specular highlight)
         SmoothActionButton(
             text = "Sign In",
             icon = Icons.AutoMirrored.Outlined.Login,
@@ -736,14 +875,14 @@ private fun SignInForm(
         ) {
             Text(
                 text = "Don't have an account? ",
-                fontSize = 13.sp,
-                color = TextSecondary
+                fontSize = 13.5.sp,
+                color = Color(0xFF64748B)
             )
             Text(
                 text = "Sign Up",
-                fontSize = 13.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = PrimaryBlue,
+                color = Color(0xFF6366F1),
                 modifier = Modifier
                     .clickable { onSwitchToRegister() }
                     .padding(4.dp)
@@ -754,7 +893,7 @@ private fun SignInForm(
 }
 
 /**
- * Sign Up Form with full academic profile creation.
+ * Sign Up Form with full academic profile creation and step-by-step transitional animations.
  */
 @Composable
 private fun SignUpForm(
@@ -785,326 +924,780 @@ private fun SignUpForm(
     onSignUp: () -> Unit,
     onSwitchToSignIn: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
+    var currentStep by remember { mutableIntStateOf(1) } // 1: Personal Info, 2: Academic Info
+    var step1Error by remember { mutableStateOf<String?>(null) }
+
+    // Validation for Step 1 before transitioning to Step 2
+    fun validateStep1(): Boolean {
+        if (name.isBlank()) {
+            step1Error = "Please enter your full student name."
+            return false
+        }
+        if (email.isBlank() || (!email.contains("@") && !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches())) {
+            step1Error = "Please enter a valid email address."
+            return false
+        }
+        if (password.length < 6) {
+            step1Error = "Password must be at least 6 characters long."
+            return false
+        }
+        if (phone.isBlank()) {
+            step1Error = "Please enter your mobile phone number."
+            return false
+        }
+        step1Error = null
+        return true
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Full Name Field
-        OutlinedTextField(
-            value = name,
-            onValueChange = onNameChange,
-            label = { Text("Full Name") },
-            enabled = !isLoading,
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Person,
-                    contentDescription = null,
-                    tint = PrimaryBlue
-                )
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFE2E8F0),
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color(0xFFFAFAFA)
-            ),
+        // Step Progress Indicator Bar
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("input_reg_name")
-        )
+                .padding(bottom = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Step 1 Header Pill
+                Surface(
+                    onClick = {
+                        focusManager.clearFocus()
+                        currentStep = 1
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (currentStep == 1) Color(0xFFEEF2FF) else Color(0xFFF8FAFC),
+                    border = BorderStroke(
+                        1.dp,
+                        if (currentStep == 1) Color(0xFF6366F1) else Color(0xFFE2E8F0)
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (currentStep == 1) Color(0xFF6366F1) else Color(0xFFCBD5E1),
+                            modifier = Modifier.size(18.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "1",
+                                    color = if (currentStep == 1) Color.White else Color(0xFF475569),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Account Info",
+                            fontSize = 12.sp,
+                            fontWeight = if (currentStep == 1) FontWeight.Bold else FontWeight.Medium,
+                            color = if (currentStep == 1) Color(0xFF4338CA) else Color(0xFF64748B)
+                        )
+                    }
+                }
 
-        // Email Field
-        OutlinedTextField(
-            value = email,
-            onValueChange = onEmailChange,
-            label = { Text("Email Address") },
-            enabled = !isLoading,
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Email,
-                    contentDescription = null,
-                    tint = PrimaryBlue
-                )
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFE2E8F0),
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color(0xFFFAFAFA)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("input_reg_email")
-        )
+                // Step 2 Header Pill
+                Surface(
+                    onClick = {
+                        if (validateStep1()) {
+                            focusManager.clearFocus()
+                            currentStep = 2
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (currentStep == 2) Color(0xFFEEF2FF) else Color(0xFFF8FAFC),
+                    border = BorderStroke(
+                        1.dp,
+                        if (currentStep == 2) Color(0xFF6366F1) else Color(0xFFE2E8F0)
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (currentStep == 2) Color(0xFF6366F1) else Color(0xFFCBD5E1),
+                            modifier = Modifier.size(18.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "2",
+                                    color = if (currentStep == 2) Color.White else Color(0xFF475569),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Campus & Tech",
+                            fontSize = 12.sp,
+                            fontWeight = if (currentStep == 2) FontWeight.Bold else FontWeight.Medium,
+                            color = if (currentStep == 2) Color(0xFF4338CA) else Color(0xFF64748B)
+                        )
+                    }
+                }
+            }
 
-        // Password Field
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPasswordChange,
-            label = { Text("Password (at least 4 characters)") },
-            enabled = !isLoading,
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Lock,
-                    contentDescription = null,
-                    tint = PrimaryBlue
-                )
-            },
-            trailingIcon = {
-                IconButton(onClick = onTogglePasswordVisibility) {
+            // Animated Linear Progress bar
+            val progressAnim by animateFloatAsState(
+                targetValue = if (currentStep == 1) 0.5f else 1.0f,
+                animationSpec = spring(stiffness = Spring.StiffnessLow),
+                label = "step_progress"
+            )
+            LinearProgressIndicator(
+                progress = { progressAnim },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.5.dp)
+                    .clip(CircleShape),
+                color = Color(0xFF6366F1),
+                trackColor = Color(0xFFE2E8F0)
+            )
+        }
+
+        // Inline Step 1 Error Banner
+        AnimatedVisibility(
+            visible = step1Error != null && currentStep == 1,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFFEF2F2),
+                border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
-                        imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                        contentDescription = "Toggle password",
-                        tint = TextSecondary
+                        imageVector = Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = step1Error ?: "",
+                        color = Color(0xFFB91C1C),
+                        fontSize = 11.5.sp
                     )
                 }
-            },
-            singleLine = true,
-            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFE2E8F0),
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color(0xFFFAFAFA)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("input_reg_password")
-        )
+            }
+        }
 
-        // Phone Number Field
-        OutlinedTextField(
-            value = phone,
-            onValueChange = onPhoneChange,
-            label = { Text("Mobile Phone Number") },
-            enabled = !isLoading,
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Phone,
-                    contentDescription = null,
-                    tint = PrimaryBlue
-                )
+        // Step-by-Step Transitional Animated Content Container
+        AnimatedContent(
+            targetState = currentStep,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn())
+                        .togetherWith(slideOutHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { -it } + fadeOut())
+                } else {
+                    (slideInHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { -it } + fadeIn())
+                        .togetherWith(slideOutHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { it } + fadeOut())
+                }
             },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFE2E8F0),
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color(0xFFFAFAFA)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("input_reg_phone")
-        )
-
-        // College Dropdown Selector
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = college,
-                onValueChange = {},
-                enabled = false,
-                readOnly = true,
-                label = { Text("Polytechnic / Institute") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.School,
-                        contentDescription = null,
-                        tint = PrimaryBlue
+            label = "signup_step_wizard"
+        ) { step ->
+            if (step == 1) {
+                // STEP 1: Account Credentials & Contact
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Full Name Field with frosted styling
+                    var nameFocused by remember { mutableStateOf(false) }
+                    val nameScale by animateFloatAsState(
+                        targetValue = if (nameFocused) 1.012f else 1f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "name_scale"
                     )
-                },
-                trailingIcon = {
-                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Dropdown", tint = TextSecondary)
-                },
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    disabledTextColor = TextPrimary,
-                    disabledBorderColor = Color(0xFFE2E8F0),
-                    disabledLabelColor = TextSecondary,
-                    disabledContainerColor = Color.White,
-                    disabledLeadingIconColor = PrimaryBlue,
-                    disabledTrailingIconColor = TextSecondary
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { onToggleCollegeDropdown(!collegeDropdown) }
-                    .testTag("select_reg_college")
-            )
-            DropdownMenu(
-                expanded = collegeDropdown,
-                onDismissRequest = { onToggleCollegeDropdown(false) },
-                properties = androidx.compose.ui.window.PopupProperties(focusable = true),
-                modifier = Modifier.background(Color.White)
-            ) {
-                CollegeDirectory.ALL_COLLEGES.forEach { colName ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = colName,
-                                fontWeight = if (colName == college) FontWeight.Bold else FontWeight.Normal,
-                                color = if (colName == college) PrimaryBlue else TextPrimary
+                    val nameElevation by animateDpAsState(
+                        targetValue = if (nameFocused) 3.dp else 0.dp,
+                        label = "name_elevation"
+                    )
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = {
+                            onNameChange(it)
+                            step1Error = null
+                        },
+                        label = { Text("Full Name") },
+                        placeholder = { Text("e.g. Shakil Ahmed") },
+                        enabled = !isLoading,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = null,
+                                tint = if (nameFocused) Color(0xFF6366F1) else Color(0xFF64748B)
                             )
                         },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = frostedInputColors(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .scale(nameScale)
+                            .shadow(nameElevation, RoundedCornerShape(16.dp), ambientColor = Color(0x186366F1), spotColor = Color(0x186366F1))
+                            .onFocusChanged { nameFocused = it.isFocused }
+                            .testTag("input_reg_name")
+                    )
+
+                    // Email Field with frosted styling
+                    var emailFocused by remember { mutableStateOf(false) }
+                    val emailScale by animateFloatAsState(
+                        targetValue = if (emailFocused) 1.012f else 1f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "email_scale"
+                    )
+                    val emailElevation by animateDpAsState(
+                        targetValue = if (emailFocused) 3.dp else 0.dp,
+                        label = "email_elevation"
+                    )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = {
+                            onEmailChange(it)
+                            step1Error = null
+                        },
+                        label = { Text("Email Address") },
+                        placeholder = { Text("e.g. student@fpi.edu.bd") },
+                        enabled = !isLoading,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Email,
+                                contentDescription = null,
+                                tint = if (emailFocused) Color(0xFF6366F1) else Color(0xFF64748B)
+                            )
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next,
+                            autoCorrectEnabled = false
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = frostedInputColors(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .scale(emailScale)
+                            .shadow(emailElevation, RoundedCornerShape(16.dp), ambientColor = Color(0x186366F1), spotColor = Color(0x186366F1))
+                            .onFocusChanged { emailFocused = it.isFocused }
+                            .testTag("input_reg_email")
+                    )
+
+                    // Password Field with frosted styling
+                    var passwordFocused by remember { mutableStateOf(false) }
+                    val passwordScale by animateFloatAsState(
+                        targetValue = if (passwordFocused) 1.012f else 1f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "password_scale"
+                    )
+                    val passwordElevation by animateDpAsState(
+                        targetValue = if (passwordFocused) 3.dp else 0.dp,
+                        label = "password_elevation"
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = {
+                            onPasswordChange(it)
+                            step1Error = null
+                        },
+                        label = { Text("Password (at least 6 characters)") },
+                        supportingText = {
+                            Text(
+                                text = "Minimum 6 characters required",
+                                fontSize = 11.sp,
+                                color = if (password.isNotEmpty() && password.length < 6) Color(0xFFDC2626) else Color(0xFF64748B)
+                            )
+                        },
+                        enabled = !isLoading,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = null,
+                                tint = if (passwordFocused) Color(0xFF6366F1) else Color(0xFF64748B)
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = onTogglePasswordVisibility) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = "Toggle password",
+                                    tint = Color(0xFF64748B)
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Next,
+                            autoCorrectEnabled = false
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = frostedInputColors(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .scale(passwordScale)
+                            .shadow(passwordElevation, RoundedCornerShape(16.dp), ambientColor = Color(0x186366F1), spotColor = Color(0x186366F1))
+                            .onFocusChanged { passwordFocused = it.isFocused }
+                            .testTag("input_reg_password")
+                    )
+
+                    // Phone Number Field with frosted styling
+                    var phoneFocused by remember { mutableStateOf(false) }
+                    val phoneScale by animateFloatAsState(
+                        targetValue = if (phoneFocused) 1.012f else 1f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "phone_scale"
+                    )
+                    val phoneElevation by animateDpAsState(
+                        targetValue = if (phoneFocused) 3.dp else 0.dp,
+                        label = "phone_elevation"
+                    )
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = {
+                            onPhoneChange(it)
+                            step1Error = null
+                        },
+                        label = { Text("Mobile Phone Number") },
+                        placeholder = { Text("01712-345678") },
+                        enabled = !isLoading,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Phone,
+                                contentDescription = null,
+                                tint = if (phoneFocused) Color(0xFF6366F1) else Color(0xFF64748B)
+                            )
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Phone,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (validateStep1()) {
+                                    focusManager.clearFocus()
+                                    currentStep = 2
+                                }
+                            }
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = frostedInputColors(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .scale(phoneScale)
+                            .shadow(phoneElevation, RoundedCornerShape(16.dp), ambientColor = Color(0x186366F1), spotColor = Color(0x186366F1))
+                            .onFocusChanged { phoneFocused = it.isFocused }
+                            .testTag("input_reg_phone")
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Step 1 Next Button: Transition smoothly to Step 2
+                    SmoothActionButton(
+                        text = "Continue to Academic Profile →",
+                        icon = Icons.Outlined.ArrowForward,
+                        isLoading = false,
                         onClick = {
-                            onToggleCollegeDropdown(false)
-                            onCollegeChange(colName)
-                        }
+                            if (validateStep1()) {
+                                focusManager.clearFocus()
+                                currentStep = 2
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        testTag = "btn_step1_next"
                     )
                 }
-            }
-        }
-
-        // Technology & Semester Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Technology
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = tech.shortName,
-                    onValueChange = {},
-                    enabled = false,
-                    readOnly = true,
-                    label = { Text("Technology") },
-                    trailingIcon = {
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = TextSecondary)
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        disabledTextColor = TextPrimary,
-                        disabledBorderColor = Color(0xFFE2E8F0),
-                        disabledLabelColor = TextSecondary,
-                        disabledContainerColor = Color.White,
-                        disabledTrailingIconColor = TextSecondary
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable { onToggleTechDropdown(!techDropdown) }
-                        .testTag("select_reg_tech")
-                )
-                DropdownMenu(
-                    expanded = techDropdown,
-                    onDismissRequest = { onToggleTechDropdown(false) },
-                    properties = androidx.compose.ui.window.PopupProperties(focusable = true),
-                    modifier = Modifier.background(Color.White)
+            } else {
+                // STEP 2: Campus, Technology & Semester Selection
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    availableTechs.forEach { t ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = t.displayName,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (t == tech) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (t == tech) PrimaryBlue else TextPrimary
+                    // College Dropdown Selector with crisp light-mode frosted styling
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = college,
+                            onValueChange = {},
+                            enabled = false,
+                            readOnly = true,
+                            label = { Text("Polytechnic / Institute") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.School,
+                                    contentDescription = null,
+                                    tint = Color(0xFF6366F1)
                                 )
                             },
-                            onClick = {
-                                onToggleTechDropdown(false)
-                                onTechChange(t)
-                            }
+                            trailingIcon = {
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Dropdown", tint = Color(0xFF64748B))
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = frostedInputColors(),
+                            modifier = Modifier.fillMaxWidth()
                         )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    focusManager.clearFocus()
+                                    onToggleCollegeDropdown(!collegeDropdown)
+                                }
+                                .testTag("select_reg_college")
+                        )
+                        DropdownMenu(
+                            expanded = collegeDropdown,
+                            onDismissRequest = { onToggleCollegeDropdown(false) },
+                            properties = androidx.compose.ui.window.PopupProperties(
+                                focusable = false,
+                                dismissOnBackPress = true,
+                                dismissOnClickOutside = true
+                            ),
+                            modifier = Modifier
+                                .widthIn(min = 280.dp, max = 340.dp)
+                                .heightIn(max = 280.dp)
+                                .background(Color.White, RoundedCornerShape(16.dp))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                                .shadow(12.dp, RoundedCornerShape(16.dp), ambientColor = Color(0x15000000))
+                        ) {
+                            Text(
+                                text = "Select Polytechnic / Institute",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF64748B),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                            HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
+                            CollegeDirectory.ALL_COLLEGES.forEach { colName ->
+                                val isSelected = colName == college
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = colName,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) Color(0xFF4F46E5) else Color(0xFF1E293B),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Check,
+                                                    contentDescription = "Selected",
+                                                    tint = Color(0xFF4F46E5),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        onToggleCollegeDropdown(false)
+                                        onCollegeChange(colName)
+                                    },
+                                    modifier = Modifier.background(
+                                        if (isSelected) Color(0xFFEEF2FF) else Color.Transparent
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Technology & Semester Row with frosted styling
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Technology Dropdown
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = tech.shortName,
+                                onValueChange = {},
+                                enabled = false,
+                                readOnly = true,
+                                label = { Text("Technology") },
+                                trailingIcon = {
+                                    Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = Color(0xFF64748B))
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = frostedInputColors(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        focusManager.clearFocus()
+                                        onToggleTechDropdown(!techDropdown)
+                                    }
+                                    .testTag("select_reg_tech")
+                            )
+                            DropdownMenu(
+                                expanded = techDropdown,
+                                onDismissRequest = { onToggleTechDropdown(false) },
+                                properties = androidx.compose.ui.window.PopupProperties(
+                                    focusable = false,
+                                    dismissOnBackPress = true,
+                                    dismissOnClickOutside = true
+                                ),
+                                modifier = Modifier
+                                    .widthIn(min = 220.dp, max = 300.dp)
+                                    .heightIn(max = 280.dp)
+                                    .background(Color.White, RoundedCornerShape(16.dp))
+                                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                                    .shadow(12.dp, RoundedCornerShape(16.dp), ambientColor = Color(0x15000000))
+                            ) {
+                                Text(
+                                    text = "Select Technology",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64748B),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                                HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
+                                availableTechs.forEach { t ->
+                                    val isSelected = t == tech
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = t.displayName,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isSelected) Color(0xFF4F46E5) else Color(0xFF1E293B)
+                                                    )
+                                                    Text(
+                                                        text = t.shortName,
+                                                        fontSize = 11.sp,
+                                                        color = if (isSelected) Color(0xFF6366F1) else Color(0xFF64748B)
+                                                    )
+                                                }
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Check,
+                                                        contentDescription = "Selected",
+                                                        tint = Color(0xFF4F46E5),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onToggleTechDropdown(false)
+                                            onTechChange(t)
+                                        },
+                                        modifier = Modifier.background(
+                                            if (isSelected) Color(0xFFEEF2FF) else Color.Transparent
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        // Semester Dropdown
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = sem.shortName,
+                                onValueChange = {},
+                                enabled = false,
+                                readOnly = true,
+                                label = { Text("Semester") },
+                                trailingIcon = {
+                                    Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = Color(0xFF64748B))
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = frostedInputColors(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        focusManager.clearFocus()
+                                        onToggleSemDropdown(!semDropdown)
+                                    }
+                                    .testTag("select_reg_sem")
+                            )
+                            DropdownMenu(
+                                expanded = semDropdown,
+                                onDismissRequest = { onToggleSemDropdown(false) },
+                                properties = androidx.compose.ui.window.PopupProperties(
+                                    focusable = false,
+                                    dismissOnBackPress = true,
+                                    dismissOnClickOutside = true
+                                ),
+                                modifier = Modifier
+                                    .widthIn(min = 190.dp, max = 260.dp)
+                                    .heightIn(max = 280.dp)
+                                    .background(Color.White, RoundedCornerShape(16.dp))
+                                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                                    .shadow(12.dp, RoundedCornerShape(16.dp), ambientColor = Color(0x15000000))
+                            ) {
+                                Text(
+                                    text = "Select Semester",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64748B),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                                HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
+                                Semester.entries.forEach { s ->
+                                    val isSelected = s == sem
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = s.displayName,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSelected) Color(0xFF4F46E5) else Color(0xFF1E293B)
+                                                )
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Check,
+                                                        contentDescription = "Selected",
+                                                        tint = Color(0xFF4F46E5),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onToggleSemDropdown(false)
+                                            onSemChange(s)
+                                        },
+                                        modifier = Modifier.background(
+                                            if (isSelected) Color(0xFFEEF2FF) else Color.Transparent
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Final Create Account Action Button (frosted glass button with gradient)
+                    SmoothActionButton(
+                        text = "Create Account",
+                        icon = Icons.Outlined.Check,
+                        isLoading = isLoading,
+                        onClick = onSignUp,
+                        modifier = Modifier.fillMaxWidth(),
+                        testTag = "btn_submit_signup"
+                    )
+
+                    // Back to Step 1 Button with frosted glass surface
+                    Surface(
+                        onClick = {
+                            focusManager.clearFocus()
+                            currentStep = 1
+                        },
+                        shape = RoundedCornerShape(26.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("btn_step2_back")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = null,
+                                tint = Color(0xFF475569),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Back to Personal Details",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF475569)
+                            )
+                        }
                     }
                 }
             }
-
-            // Semester
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = sem.shortName,
-                    onValueChange = {},
-                    enabled = false,
-                    readOnly = true,
-                    label = { Text("Semester") },
-                    trailingIcon = {
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = TextSecondary)
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        disabledTextColor = TextPrimary,
-                        disabledBorderColor = Color(0xFFE2E8F0),
-                        disabledLabelColor = TextSecondary,
-                        disabledContainerColor = Color.White,
-                        disabledTrailingIconColor = TextSecondary
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable { onToggleSemDropdown(!semDropdown) }
-                        .testTag("select_reg_sem")
-                )
-                DropdownMenu(
-                    expanded = semDropdown,
-                    onDismissRequest = { onToggleSemDropdown(false) },
-                    properties = androidx.compose.ui.window.PopupProperties(focusable = true),
-                    modifier = Modifier.background(Color.White)
-                ) {
-                    Semester.entries.forEach { s ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = s.displayName,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (s == sem) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (s == sem) PrimaryBlue else TextPrimary
-                                )
-                            },
-                            onClick = {
-                                onToggleSemDropdown(false)
-                                onSemChange(s)
-                            }
-                        )
-                    }
-                }
-            }
         }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Create Account Action Button
-        SmoothActionButton(
-            text = "Create Account",
-            icon = Icons.Outlined.Check,
-            isLoading = isLoading,
-            onClick = onSignUp,
-            modifier = Modifier.fillMaxWidth(),
-            testTag = "btn_submit_signup"
-        )
 
         // Switch to Sign In text link
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 4.dp),
+                .padding(top = 2.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "Already have an account? ",
-                fontSize = 13.sp,
-                color = TextSecondary
+                fontSize = 13.5.sp,
+                color = Color(0xFF64748B)
             )
             Text(
                 text = "Sign In",
-                fontSize = 13.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = PrimaryBlue,
+                color = Color(0xFF6366F1),
                 modifier = Modifier
                     .clickable { onSwitchToSignIn() }
                     .padding(4.dp)
@@ -1115,7 +1708,8 @@ private fun SignUpForm(
 }
 
 /**
- * Reusable Action Button with spring tactile press animation.
+ * Reusable Action Button with rich frosted styling,
+ * top specular reflection sheen, and spring tactile press physics.
  */
 @Composable
 private fun SmoothActionButton(
@@ -1124,46 +1718,84 @@ private fun SmoothActionButton(
     isLoading: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    gradientColors: List<Color> = listOf(
+        Color(0xFF7C3AED),
+        Color(0xFF6366F1)
+    ),
+    textColor: Color = Color.White,
     testTag: String = ""
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1f,
+        targetValue = if (isPressed) 0.96f else 1f,
         animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
         label = "btn_scale"
     )
 
-    Surface(
-        onClick = onClick,
-        enabled = !isLoading,
-        shape = RoundedCornerShape(16.dp),
-        color = PrimaryBlue,
-        shadowElevation = 4.dp,
-        interactionSource = interactionSource,
+    Box(
         modifier = modifier
             .scale(scale)
-            .height(50.dp)
-            .shadow(6.dp, RoundedCornerShape(16.dp), ambientColor = PrimaryBlueGlow, spotColor = PrimaryBlueGlow)
-            .testTag(testTag)
+            .height(52.dp)
+            .shadow(
+                elevation = 6.dp,
+                shape = RoundedCornerShape(26.dp),
+                ambientColor = Color(0x306366F1),
+                spotColor = Color(0x306366F1)
+            )
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.horizontalGradient(gradientColors)
+            )
+            .border(
+                width = 1.2.dp,
+                brush = Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.25f),
+                        Color.White.copy(alpha = 0.55f)
+                    )
+                ),
+                shape = RoundedCornerShape(26.dp)
+            )
+            .clickable(
+                enabled = !isLoading,
+                interactionSource = interactionSource,
+                indication = ripple(color = Color.White.copy(alpha = 0.35f))
+            ) { onClick() }
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
+        // Specular top highlight sheen
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .fillMaxWidth(0.85f)
+                .height(4.dp)
+                .align(Alignment.TopCenter)
+                .padding(top = 2.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = 0.40f), Color.Transparent)
+                    )
+                )
+        )
+
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
-                    color = Color.White,
+                    color = textColor,
                     strokeWidth = 2.5.dp,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = "Please wait...",
-                    color = Color.White,
+                    color = textColor,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1171,13 +1803,13 @@ private fun SmoothActionButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = textColor,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = text,
-                    color = Color.White,
+                    color = textColor,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -1186,68 +1818,7 @@ private fun SmoothActionButton(
     }
 }
 
-/**
- * Clean Google Sign-In Button with tactile spring feedback.
- */
-@Composable
-private fun GoogleSignInButton(
-    isLoading: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    testTag: String = "btn_google_signin"
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
-        label = "google_scale"
-    )
 
-    Surface(
-        onClick = onClick,
-        enabled = !isLoading,
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        border = BorderStroke(1.2.dp, Color(0xFFCBD5E1)),
-        shadowElevation = 2.dp,
-        interactionSource = interactionSource,
-        modifier = modifier
-            .scale(scale)
-            .height(48.dp)
-            .testTag(testTag)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = Color(0xFF4285F4),
-                modifier = Modifier.size(22.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "G",
-                        color = Color.White,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = "Sign in with Google",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1E293B)
-            )
-        }
-    }
-}
 
 /**
  * Beautiful Gmail OTP Verification Component with real-time 6-digit PIN input,
@@ -1305,15 +1876,15 @@ private fun GmailOtpVerificationCard(
             text = "Gmail OTP Verification",
             fontSize = 19.sp,
             fontWeight = FontWeight.Bold,
-            color = TextPrimary
+            color = Color(0xFF0F172A)
         )
 
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "আপনার জিমেইলে পাঠানো ৬-সংখ্যার ওটিপি কোডটি দিন:",
+            text = "Enter the 6-digit verification code sent to your Gmail:",
             fontSize = 13.sp,
-            color = TextSecondary,
+            color = Color(0xFF475569),
             textAlign = TextAlign.Center,
             lineHeight = 18.sp
         )
@@ -1333,7 +1904,7 @@ private fun GmailOtpVerificationCard(
                 Icon(
                     imageVector = Icons.Outlined.Email,
                     contentDescription = null,
-                    tint = PrimaryBlue,
+                    tint = Color(0xFF6366F1),
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -1341,13 +1912,13 @@ private fun GmailOtpVerificationCard(
                     text = email,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
+                    color = Color(0xFF1E293B)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
                     imageVector = Icons.Outlined.Edit,
                     contentDescription = "Edit email",
-                    tint = TextMuted,
+                    tint = Color(0xFF64748B),
                     modifier = Modifier
                         .size(14.dp)
                         .clickable { onBackToSignUp() }
@@ -1387,14 +1958,14 @@ private fun GmailOtpVerificationCard(
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Google Mail • ইনবক্স",
+                            text = "Google Mail • Inbox",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = TextSecondary
+                            color = Color(0xFF1E293B)
                         )
                     }
                     Text(
-                        text = "এখনই পাঠানো হয়েছে",
+                        text = "Received Just Now",
                         fontSize = 10.sp,
                         color = Color(0xFF16A34A),
                         fontWeight = FontWeight.Medium
@@ -1404,9 +1975,9 @@ private fun GmailOtpVerificationCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "বিষয়: পলিটেকনিক বুক এক্সচেঞ্জ ভেরিফিকেশন কোড",
+                    text = "Subject: Polytechnic Book Exchange Verification Code",
                     fontSize = 12.sp,
-                    color = TextSecondary
+                    color = Color(0xFF475569)
                 )
                 Row(
                     modifier = Modifier
@@ -1416,17 +1987,17 @@ private fun GmailOtpVerificationCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ওটিপি: ${sentCodeForTest ?: "******"}",
+                        text = "OTP: ${sentCodeForTest ?: "******"}",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = PrimaryBlue
+                        color = Color(0xFF4F46E5)
                     )
                     if (sentCodeForTest != null) {
                         Surface(
                             onClick = onAutoFill,
                             shape = RoundedCornerShape(8.dp),
-                            color = PrimaryBlue.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.25f))
+                            color = Color(0xFFEEF2FF),
+                            border = BorderStroke(1.dp, Color(0xFFC7D2FE))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1435,15 +2006,15 @@ private fun GmailOtpVerificationCard(
                                 Icon(
                                     imageVector = Icons.Outlined.AutoFixHigh,
                                     contentDescription = null,
-                                    tint = PrimaryBlue,
+                                    tint = Color(0xFF4F46E5),
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "অটো-ফিল করুন",
+                                    text = "Auto Fill",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = PrimaryBlue
+                                    color = Color(0xFF4F46E5)
                                 )
                             }
                         }
@@ -1487,21 +2058,20 @@ private fun GmailOtpVerificationCard(
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = when {
-                            isSuccess -> Color(0xFFF0FDF4)
+                            isSuccess -> Color(0xFFDCFCE7)
                             isCurrent -> Color.White
-                            isFilled -> Color(0xFFF8FAFC)
-                            else -> Color(0xFFF1F5F9)
+                            isFilled -> Color.White
+                            else -> Color(0xFFF8FAFC)
                         },
                         border = BorderStroke(
                             width = if (isCurrent) 2.dp else 1.2.dp,
                             color = when {
                                 isSuccess -> Color(0xFF22C55E)
-                                isCurrent -> PrimaryBlue
+                                isCurrent -> Color(0xFF6366F1)
                                 isFilled -> Color(0xFF94A3B8)
                                 else -> Color(0xFFCBD5E1)
                             }
                         ),
-                        shadowElevation = if (isCurrent) 3.dp else 0.dp,
                         modifier = Modifier
                             .size(44.dp, 52.dp)
                             .clickable {
@@ -1516,14 +2086,14 @@ private fun GmailOtpVerificationCard(
                                     text = digit,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
+                                    color = Color(0xFF0F172A)
                                 )
                             } else if (isCurrent) {
                                 Box(
                                     modifier = Modifier
                                         .width(2.dp)
                                         .height(18.dp)
-                                        .background(PrimaryBlue, RoundedCornerShape(1.dp))
+                                        .background(Color(0xFF6366F1), RoundedCornerShape(1.dp))
                                 )
                             } else {
                                 Box(
@@ -1549,14 +2119,14 @@ private fun GmailOtpVerificationCard(
                 Icon(
                     imageVector = Icons.Outlined.Timer,
                     contentDescription = null,
-                    tint = TextMuted,
+                    tint = Color(0xFF64748B),
                     modifier = Modifier.size(15.dp)
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "কোড পুনরায় পাঠান: 00:${if (countdown < 10) "0$countdown" else "$countdown"}",
+                    text = "Resend code in: 00:${if (countdown < 10) "0$countdown" else "$countdown"}",
                     fontSize = 12.5.sp,
-                    color = TextSecondary
+                    color = Color(0xFF475569)
                 )
             } else {
                 TextButton(
@@ -1566,15 +2136,15 @@ private fun GmailOtpVerificationCard(
                     Icon(
                         imageVector = Icons.Outlined.Refresh,
                         contentDescription = null,
-                        tint = PrimaryBlue,
+                        tint = Color(0xFF6366F1),
                         modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "পুনরায় কোড পাঠান (Resend OTP)",
+                        text = "Resend OTP",
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = PrimaryBlue
+                        color = Color(0xFF6366F1)
                     )
                 }
             }
@@ -1622,7 +2192,7 @@ private fun GmailOtpVerificationCard(
         ) {
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = Color(0xFFF0FDF4),
+                color = Color(0xFFDCFCE7),
                 border = BorderStroke(1.dp, Color(0xFF86EFAC)),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1640,7 +2210,7 @@ private fun GmailOtpVerificationCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "ওটিপি সফলভাবে যাচাই হয়েছে! লগইন করা হচ্ছে...",
+                        text = "OTP verified successfully! Logging you in...",
                         color = Color(0xFF15803D),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -1651,53 +2221,25 @@ private fun GmailOtpVerificationCard(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Confirm & Log In Button
-        Surface(
-            onClick = onVerify,
-            enabled = !isLoading && !isSuccess && otpCode.length == 6,
-            shape = RoundedCornerShape(14.dp),
-            color = if (otpCode.length == 6) PrimaryBlue else Color(0xFF94A3B8),
-            shadowElevation = if (otpCode.length == 6) 3.dp else 0.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("btn_verify_otp")
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "যাচাই করা হচ্ছে...",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.VerifiedUser,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "ওটিপি নিশ্চিত করুন এবং লগইন করুন",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+        // Confirm & Log In Button with Frosted Gradient Action styling
+        SmoothActionButton(
+            text = "Verify OTP & Sign In",
+            icon = Icons.Outlined.VerifiedUser,
+            isLoading = isLoading,
+            onClick = {
+                if (!isLoading && !isSuccess && otpCode.length == 6) {
+                    onVerify()
                 }
-            }
-        }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            gradientColors = if (otpCode.length == 6 && !isSuccess) {
+                listOf(Color(0xFF7C3AED), Color(0xFF6366F1), Color(0xFF4F46E5))
+            } else {
+                listOf(Color(0xFFE2E8F0), Color(0xFFCBD5E1))
+            },
+            textColor = if (otpCode.length == 6 && !isSuccess) Color.White else Color(0xFF64748B),
+            testTag = "btn_verify_otp"
+        )
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -1709,14 +2251,14 @@ private fun GmailOtpVerificationCard(
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = Color(0xFF64748B),
                 modifier = Modifier.size(15.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "সাইন আপ ফর্মে ফিরে যান",
+                text = "Back to Sign Up",
                 fontSize = 13.sp,
-                color = TextSecondary
+                color = Color(0xFF64748B)
             )
         }
     }

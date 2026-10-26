@@ -89,7 +89,7 @@ fun SearchScreen(
     val filteredSets = remember(bookSets, searchQuery, selectedCollege, selectedTechnology, selectedSemester) {
         bookSets.filter { set ->
             val matchStatus = set.status == SetStatus.AVAILABLE
-            val matchCollege = set.college.trim().equals(selectedCollege.trim(), ignoreCase = true)
+            val matchCollege = CollegeDirectory.matchesCollege(set.college, selectedCollege)
             val matchTech = selectedTechnology == null || set.technology == selectedTechnology
             val matchSem = selectedSemester == null || set.semester == selectedSemester
 

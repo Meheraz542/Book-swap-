@@ -100,7 +100,10 @@ data class ChatMessage(
     val senderName: String,
     val text: String,
     val timestamp: String,
-    val isMe: Boolean
+    val isMe: Boolean,
+    val senderAvatarUri: String? = null,
+    val senderAvatarRes: Int? = null,
+    val isPending: Boolean = false
 )
 
 data class Conversation(
@@ -110,6 +113,13 @@ data class Conversation(
     val otherUserName: String,
     val otherUserCollege: String,
     val otherUserAvatarRes: Int? = null,
+    val otherUserAvatarUri: String? = null,
+    val buyerName: String = "",
+    val buyerCollege: String = "",
+    val buyerAvatarUri: String? = null,
+    val sellerName: String = "",
+    val sellerCollege: String = "",
+    val sellerAvatarUri: String? = null,
     val setId: String,
     val setTitle: String,
     val setPrice: Int,
@@ -117,8 +127,38 @@ data class Conversation(
     val timestamp: String,
     val unreadCount: Int = 0,
     val isOnline: Boolean = true,
-    val messages: List<ChatMessage> = emptyList()
-)
+    val messages: List<ChatMessage> = emptyList(),
+    val updatedAt: Long = 0L,
+    val deletedByUserIds: List<String> = emptyList()
+) {
+    fun getOtherUserId(currentUserId: String): String {
+        return if (currentUserId == sellerId) buyerId else sellerId
+    }
+
+    fun getEffectiveOtherUserName(currentUserId: String): String {
+        return if (currentUserId == sellerId) {
+            buyerName.ifBlank { otherUserName }
+        } else {
+            sellerName.ifBlank { otherUserName }
+        }
+    }
+
+    fun getEffectiveOtherUserCollege(currentUserId: String): String {
+        return if (currentUserId == sellerId) {
+            buyerCollege.ifBlank { otherUserCollege }
+        } else {
+            sellerCollege.ifBlank { otherUserCollege }
+        }
+    }
+
+    fun getEffectiveOtherUserAvatarUri(currentUserId: String): String? {
+        return if (currentUserId == sellerId) {
+            buyerAvatarUri ?: otherUserAvatarUri
+        } else {
+            sellerAvatarUri ?: otherUserAvatarUri
+        }
+    }
+}
 
 enum class MegaDealStatus {
     PENDING,

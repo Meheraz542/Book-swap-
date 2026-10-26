@@ -13,6 +13,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -68,6 +69,21 @@ fun SetDetailsScreen(
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showMarkAsSoldConfirmDialog by remember { mutableStateOf(false) }
+
+    val allUploadedPhotos = remember(bookSet) {
+        val list = mutableListOf<String>()
+        bookSet.imageUrls.filter { it.isNotBlank() }.forEach { uri ->
+            if (uri !in list) list.add(uri)
+        }
+        bookSet.includedBooks.forEach { book ->
+            book.imageUris.filter { it.isNotBlank() }.forEach { uri ->
+                if (uri !in list) list.add(uri)
+            }
+        }
+        list
+    }
+    var selectedPhotoIndex by remember(allUploadedPhotos) { mutableIntStateOf(0) }
+    var viewingPhotoFullscreen by remember { mutableStateOf<String?>(null) }
 
     // Increment actual book view interaction in telemetry
     LaunchedEffect(bookSet.id) {
@@ -222,13 +238,19 @@ fun SetDetailsScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 ambientColor = DeepShadowColor,
                                 spotColor = DeepShadowColor
-                            ),
+                            )
+                            .clickable {
+                                if (allUploadedPhotos.isNotEmpty()) {
+                                    viewingPhotoFullscreen = allUploadedPhotos.getOrNull(selectedPhotoIndex)
+                                }
+                            },
                         shape = RoundedCornerShape(12.dp),
                         color = Color.White
                     ) {
-                        if (bookSet.imageUrls.isNotEmpty()) {
+                        if (allUploadedPhotos.isNotEmpty()) {
+                            val activePhoto = allUploadedPhotos.getOrElse(selectedPhotoIndex) { allUploadedPhotos.first() }
                             AsyncImage(
-                                model = bookSet.imageUrls.first(),
+                                model = activePhoto,
                                 contentDescription = bookSet.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -243,26 +265,75 @@ fun SetDetailsScreen(
                         }
                     }
 
-                    // 1/5 counter badge
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 12.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF334155).copy(alpha = 0.8f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "1/5",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                    // Photo count badge
+                    if (allUploadedPhotos.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 12.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF334155).copy(alpha = 0.85f))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "${selectedPhotoIndex + 1}/${allUploadedPhotos.size}",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
 
-            // Main Info Card
+            // All Uploaded Book Cover Photos Gallery
+            if (allUploadedPhotos.size > 1) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                    ) {
+                        Text(
+                            text = "Uploaded Book Photos (${allUploadedPhotos.size})",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        androidx.compose.foundation.lazy.LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            itemsIndexed(allUploadedPhotos) { idx, photoUri ->
+                                val isSelected = idx == selectedPhotoIndex
+                                Surface(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { selectedPhotoIndex = idx },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(
+                                        width = if (isSelected) 2.5.dp else 1.dp,
+                                        color = if (isSelected) PrimaryPurple else Color(0xFFE2E8F0)
+                                    ),
+                                    shadowElevation = if (isSelected) 4.dp else 1.dp
+                                ) {
+                                    AsyncImage(
+                                        model = photoUri,
+                                        contentDescription = "Cover Photo ${idx + 1}",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Main Info Card - Author, Edition, Book Code fields removed per requirement
             item {
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -285,7 +356,7 @@ fun SetDetailsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Badges Grid
+                    // Badges Grid - Showing Semester and Department only
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -293,20 +364,6 @@ fun SetDetailsScreen(
                         DetailBadge("${bookSet.semester.displayName}")
                         DetailBadge("${bookSet.technology.displayName}")
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        DetailBadge("Author: S. M. Ahmed")
-                        DetailBadge("Edition: 4th Edition")
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    DetailBadge("Book Code: CE-401")
                 }
             }
 
@@ -532,24 +589,29 @@ fun SetDetailsScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${book.subject}${if (book.author.isNotBlank()) " • " + book.author else ""}",
+                                text = book.subject,
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
                         }
 
-                        if (book.edition.isNotBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(CardGlassSoft)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                        if (book.imageUris.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = book.edition,
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
+                                book.imageUris.take(2).forEach { imgUri ->
+                                    AsyncImage(
+                                        model = imgUri,
+                                        contentDescription = "Book photo",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                                            .clickable { viewingPhotoFullscreen = imgUri }
+                                    )
+                                }
                             }
                         }
                     }
@@ -629,8 +691,26 @@ fun SetDetailsScreen(
                         // Phone call action
                         Surface(
                             onClick = {
-                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${bookSet.sellerPhone}"))
-                                context.startActivity(intent)
+                                val phone = bookSet.sellerPhone.trim()
+                                if (phone.isNotBlank()) {
+                                    val cleanPhone = phone.filter { it.isDigit() || it == '+' }
+                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanPhone"))
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Could not open dialer: ${e.message}",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "No phone number available for ${bookSet.sellerName}.",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             },
                             modifier = Modifier.size(42.dp),
                             shape = CircleShape,
@@ -685,6 +765,45 @@ fun SetDetailsScreen(
         iconColor = PrimaryPurple,
         testTagConfirm = "btn_confirm_sold_popup"
     )
+
+    // Fullscreen Photo Viewer Dialog
+    if (viewingPhotoFullscreen != null) {
+        Dialog(
+            onDismissRequest = { viewingPhotoFullscreen = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.92f))
+                    .clickable { viewingPhotoFullscreen = null },
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = viewingPhotoFullscreen,
+                    contentDescription = "Full photo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .fillMaxHeight(0.85f)
+                        .clip(RoundedCornerShape(16.dp))
+                )
+
+                // Close button
+                GlassIconButton(
+                    onClick = { viewingPhotoFullscreen = null },
+                    icon = Icons.Outlined.CheckCircle,
+                    contentDescription = "Close photo",
+                    tone = GlassIconTone.FROSTED_WHITE,
+                    size = 40.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(16.dp)
+                )
+            }
+        }
+    }
 }
 
 /**

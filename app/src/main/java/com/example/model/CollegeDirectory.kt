@@ -48,4 +48,15 @@ object CollegeDirectory {
             )
         }
     }
+
+    fun matchesCollege(collegeA: String, collegeB: String): Boolean {
+        val a = collegeA.trim().lowercase()
+        val b = collegeB.trim().lowercase()
+        if (a == b) return true
+        if (a.contains("feni computer") && b.contains("feni computer")) return true
+        if (a.contains("feni polytechnic") && b.contains("feni polytechnic")) return true
+        if (a.contains("computer") && b.contains("computer")) return true
+        if (a.contains("polytechnic") && b.contains("polytechnic")) return true
+        return false
+    }
 }

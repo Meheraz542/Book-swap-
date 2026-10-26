@@ -133,7 +133,7 @@ fun SellScreen(
     var description by remember { mutableStateOf("") }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var selectedPhotoUris by remember { mutableStateOf<List<String>>(emptyList()) }
+    var coverPhotoUri by remember { mutableStateOf<String?>(null) }
     var isSavingPhoto by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -144,7 +144,7 @@ fun SellScreen(
                 isSavingPhoto = true
                 try {
                     val persistentUri = ImageStorageManager.saveImageLocally(context, uri)
-                    selectedPhotoUris = selectedPhotoUris + persistentUri
+                    coverPhotoUri = persistentUri
                 } finally {
                     isSavingPhoto = false
                 }
@@ -260,7 +260,13 @@ fun SellScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         GlassButton(
                             text = "Done",
-                            onClick = { isPublished = false },
+                            onClick = {
+                                isPublished = false
+                                coverPhotoUri = null
+                                totalPriceText = ""
+                                description = ""
+                                includedBooks = emptyList()
+                            },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -382,7 +388,7 @@ fun SellScreen(
 
                         // 3. Semester Dropdown
                         GlassNeumorphicDropdownField(
-                            label = "Semester",
+                            label = "Which Semester Book?",
                             selectedValue = selectedSem,
                             displayValue = { it?.displayName ?: "Select Semester" },
                             options = Semester.entries,
@@ -548,7 +554,7 @@ fun SellScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Quick:", fontSize = 12.sp, color = TextMuted, fontWeight = FontWeight.Medium)
-                            listOf("350", "450", "550", "650", "800").forEach { quickPrice ->
+                            listOf("450", "500", "550", "600").forEach { quickPrice ->
                                 LiquidGlassChip(
                                     text = "Tk $quickPrice",
                                     selected = totalPriceText == quickPrice,
@@ -615,7 +621,7 @@ fun SellScreen(
                     }
                 }
 
-                // Photo preview
+                // Cover Photo preview
                 item {
                     GlassCard(modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -623,72 +629,157 @@ fun SellScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Set Photos", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
-                            Text(
-                                text = "${selectedPhotoUris.size}/4 Photos",
-                                fontSize = 12.sp,
-                                color = TextMuted
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Selected photos
-                            itemsIndexed(selectedPhotoUris) { index, photoUri ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(80.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFFE2E8F0))
+                            Column {
+                                Text("Cover Photo", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                                Text("Main display cover for this book set", fontSize = 12.sp, color = TextMuted)
+                            }
+                            if (coverPhotoUri != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f))
                                 ) {
-                                    AsyncImage(
-                                        model = photoUri,
-                                        contentDescription = "Photo ${index + 1}",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    // Remove photo button
-                                    Surface(
-                                        onClick = {
-                                            selectedPhotoUris = selectedPhotoUris.filterIndexed { i, _ -> i != index }
-                                        },
-                                        shape = CircleShape,
-                                        color = Color.Black.copy(alpha = 0.6f),
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(4.dp)
-                                            .size(22.dp)
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Remove photo",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
+                                        Icon(
+                                            Icons.Filled.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Cover Added", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF047857))
                                     }
                                 }
                             }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                            // Add Photo button (if less than 4)
-                            if (selectedPhotoUris.size < 4) {
-                                item {
-                                    GlassIconButton(
+                        if (coverPhotoUri != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(190.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFFE2E8F0))
+                            ) {
+                                AsyncImage(
+                                    model = coverPhotoUri,
+                                    contentDescription = "Cover Photo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = "★ Main Cover",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
                                         onClick = {
                                             photoPickerLauncher.launch(
                                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                             )
                                         },
-                                        icon = Icons.Outlined.AddPhotoAlternate,
-                                        contentDescription = "Add photo",
-                                        tone = GlassIconTone.PRIMARY_PURPLE,
-                                        size = 80.dp,
-                                        shape = RoundedCornerShape(16.dp),
-                                        testTag = "btn_add_photo"
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color.White.copy(alpha = 0.92f),
+                                        shadowElevation = 2.dp,
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.AddPhotoAlternate,
+                                                contentDescription = "Change Cover Photo",
+                                                tint = PrimaryPurple,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Change",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = PrimaryPurple
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        onClick = { coverPhotoUri = null },
+                                        shape = CircleShape,
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove Cover Photo",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                color = PrimaryPurpleLight.copy(alpha = 0.35f),
+                                border = BorderStroke(1.5.dp, PrimaryPurple.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(130.dp)
+                                    .testTag("btn_add_cover_photo")
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AddPhotoAlternate,
+                                        contentDescription = "Upload Cover Photo",
+                                        tint = PrimaryPurple,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Upload Cover Photo",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        color = PrimaryPurple
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Single image • Serves as main display cover",
+                                        fontSize = 12.sp,
+                                        color = TextMuted
                                     )
                                 }
                             }
@@ -696,7 +787,17 @@ fun SellScreen(
 
                         if (isSavingPhoto) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Saving photo to app storage...", fontSize = 12.sp, color = PrimaryPurple)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = PrimaryPurple
+                                )
+                                Text("Saving cover photo...", fontSize = 12.sp, color = PrimaryPurple)
+                            }
                         }
                     }
                 }
@@ -737,7 +838,7 @@ fun SellScreen(
                                     overallCondition = overallCondition,
                                     description = description.ifBlank { "Complete ${selectedSem.displayName} set for ${selectedTech.displayName} in ${overallCondition.label.lowercase()} condition." },
                                     includedBooks = includedBooks,
-                                    imageUrls = selectedPhotoUris
+                                    imageUrls = coverPhotoUri?.let { listOf(it) } ?: emptyList()
                                 )
                                 isPublished = true
                                 onPublishSuccess(newSet)

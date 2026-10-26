@@ -76,10 +76,10 @@ class FirebaseFirestoreManager(private val context: Context) {
             Log.d(tag, "User saved to Firestore: ${user.id} (${user.email})")
         } catch (e: Exception) {
             if (e is kotlin.coroutines.cancellation.CancellationException) {
-                // Ignore composition cancellation
-                throw e
+                Log.d(tag, "Profile save coroutine cancelled cleanly on navigation: ${e.message}")
+            } else {
+                Log.w(tag, "Failed to save user profile: ${e.message}")
             }
-            Log.w(tag, "Failed to save user profile: ${e.message}")
         }
     }
 
@@ -95,7 +95,7 @@ class FirebaseFirestoreManager(private val context: Context) {
 
     fun listenAllUsers(onUsersUpdated: (List<UserProfile>) -> Unit): ListenerRegistration? {
         return firestore.collection("users")
-            .addSnapshotListener { snapshot, error ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
                 if (error != null) {
                     Log.e(tag, "Error listening to users", error)
                     return@addSnapshotListener
@@ -104,6 +104,23 @@ class FirebaseFirestoreManager(private val context: Context) {
                     val users = snapshot.documents.mapNotNull { docToUserProfile(it) }
                     Log.d(tag, "Live users received from Firestore: ${users.size}")
                     onUsersUpdated(users)
+                }
+            }
+    }
+
+    fun listenUserProfile(userId: String, onProfileUpdated: (UserProfile) -> Unit): ListenerRegistration? {
+        if (userId.isBlank()) return null
+        return firestore.collection("users").document(userId)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                if (error != null) {
+                    Log.e(tag, "Error listening to user profile: $userId", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    val profile = docToUserProfile(snapshot)
+                    if (profile != null) {
+                        onProfileUpdated(profile)
+                    }
                 }
             }
     }
@@ -318,11 +335,19 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "participantUids" to listOf(conv.buyerId, conv.sellerId),
                 "otherUserName" to conv.otherUserName,
                 "otherUserCollege" to conv.otherUserCollege,
+                "otherUserAvatarUri" to (conv.otherUserAvatarUri ?: ""),
+                "buyerName" to conv.buyerName,
+                "buyerCollege" to conv.buyerCollege,
+                "buyerAvatarUri" to (conv.buyerAvatarUri ?: ""),
+                "sellerName" to conv.sellerName,
+                "sellerCollege" to conv.sellerCollege,
+                "sellerAvatarUri" to (conv.sellerAvatarUri ?: ""),
                 "setId" to conv.setId,
                 "setTitle" to conv.setTitle,
                 "setPrice" to conv.setPrice,
                 "lastMessage" to conv.lastMessage,
                 "timestamp" to conv.timestamp,
+                "deletedByUserIds" to conv.deletedByUserIds,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             firestore.collection("conversations").document(conv.id)
@@ -345,7 +370,7 @@ class FirebaseFirestoreManager(private val context: Context) {
             firestore.collection("conversations").whereArrayContains("participantUids", userId)
         }
 
-        return query.addSnapshotListener { snapshot, error ->
+        return query.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (error != null) {
                 Log.e(tag, "Error listening to conversations", error)
                 return@addSnapshotListener
@@ -355,24 +380,78 @@ class FirebaseFirestoreManager(private val context: Context) {
                     val id = doc.getString("id") ?: doc.id
                     val buyerId = doc.getString("buyerId") ?: ""
                     val sellerId = doc.getString("sellerId") ?: ""
+                    val buyerName = doc.getString("buyerName") ?: ""
+                    val buyerCollege = doc.getString("buyerCollege") ?: ""
+                    val buyerAvatarUri = doc.getString("buyerAvatarUri")?.takeIf { it.isNotBlank() }
+                    val sellerName = doc.getString("sellerName") ?: ""
+                    val sellerCollege = doc.getString("sellerCollege") ?: ""
+                    val sellerAvatarUri = doc.getString("sellerAvatarUri")?.takeIf { it.isNotBlank() }
+                    val storedOtherName = doc.getString("otherUserName") ?: "Student"
+                    val storedOtherCollege = doc.getString("otherUserCollege") ?: "Feni Polytechnic"
+                    val storedOtherAvatar = doc.getString("otherUserAvatarUri")?.takeIf { it.isNotBlank() }
+
+                    val resolvedOtherName = if (userId == sellerId) {
+                        buyerName.ifBlank { storedOtherName }
+                    } else {
+                        sellerName.ifBlank { storedOtherName }
+                    }
+
+                    val resolvedOtherCollege = if (userId == sellerId) {
+                        buyerCollege.ifBlank { storedOtherCollege }
+                    } else {
+                        sellerCollege.ifBlank { storedOtherCollege }
+                    }
+
+                    val resolvedOtherAvatarUri = if (userId == sellerId) {
+                        buyerAvatarUri ?: storedOtherAvatar
+                    } else {
+                        sellerAvatarUri ?: storedOtherAvatar
+                    }
+
+                    val rawUpdatedAt = when (val uVal = doc.get("updatedAt")) {
+                        is Long -> uVal
+                        is Number -> uVal.toLong()
+                        is com.google.firebase.Timestamp -> uVal.toDate().time
+                        else -> 0L
+                    }
+                    val hasPendingWrites = doc.metadata.hasPendingWrites()
+                    val updatedAt = if (rawUpdatedAt == 0L && hasPendingWrites) {
+                        System.currentTimeMillis()
+                    } else {
+                        rawUpdatedAt
+                    }
+
+                    val unreadForUser = (doc.getLong("unreadCount_$userId") ?: doc.getLong("unreadCount") ?: 0L).toInt()
+                    val lastSenderId = doc.getString("lastSenderId") ?: ""
+                    val finalUnread = if (lastSenderId == userId) 0 else unreadForUser
+                    val deletedByUserIds = (doc.get("deletedByUserIds") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
 
                     Conversation(
                         id = id,
                         buyerId = buyerId,
                         sellerId = sellerId,
-                        otherUserName = doc.getString("otherUserName") ?: "Student",
-                        otherUserCollege = doc.getString("otherUserCollege") ?: "Feni Polytechnic",
+                        otherUserName = resolvedOtherName,
+                        otherUserCollege = resolvedOtherCollege,
                         otherUserAvatarRes = null,
+                        otherUserAvatarUri = resolvedOtherAvatarUri,
+                        buyerName = buyerName,
+                        buyerCollege = buyerCollege,
+                        buyerAvatarUri = buyerAvatarUri,
+                        sellerName = sellerName,
+                        sellerCollege = sellerCollege,
+                        sellerAvatarUri = sellerAvatarUri,
                         setId = doc.getString("setId") ?: "",
                         setTitle = doc.getString("setTitle") ?: "",
                         setPrice = (doc.getLong("setPrice") ?: 0L).toInt(),
                         lastMessage = doc.getString("lastMessage") ?: "",
                         timestamp = doc.getString("timestamp") ?: "Just now",
-                        unreadCount = 0,
+                        unreadCount = finalUnread,
                         isOnline = true,
-                        messages = emptyList()
+                        messages = emptyList(),
+                        updatedAt = updatedAt,
+                        deletedByUserIds = deletedByUserIds
                     )
-                }
+                }.sortedByDescending { it.updatedAt }
                 onConversationsUpdated(list)
             }
         }
@@ -386,8 +465,29 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "senderName" to message.senderName,
                 "text" to message.text,
                 "timestamp" to message.timestamp,
+                "senderAvatarUri" to (message.senderAvatarUri ?: ""),
                 "createdAt" to System.currentTimeMillis()
             )
+
+            val convDoc = try {
+                firestore.collection("conversations").document(conversationId).get().await()
+            } catch (_: Exception) { null }
+
+            val buyerId = convDoc?.getString("buyerId") ?: ""
+            val sellerId = convDoc?.getString("sellerId") ?: ""
+            val recipientId = if (message.senderId == buyerId) sellerId else buyerId
+
+            val updateMap = mutableMapOf<String, Any>(
+                "lastMessage" to message.text,
+                "timestamp" to message.timestamp,
+                "lastSenderId" to message.senderId,
+                "deletedByUserIds" to emptyList<String>(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (recipientId.isNotBlank()) {
+                updateMap["unreadCount_$recipientId"] = FieldValue.increment(1)
+            }
+            updateMap["unreadCount"] = FieldValue.increment(1)
 
             // 1. Add message to subcollection
             firestore.collection("conversations").document(conversationId)
@@ -395,20 +495,114 @@ class FirebaseFirestoreManager(private val context: Context) {
                 .set(msgMap)
                 .await()
 
-            // 2. Update conversation last message
+            // 2. Update conversation last message & unread state
             firestore.collection("conversations").document(conversationId)
-                .update(
-                    mapOf(
-                        "lastMessage" to message.text,
-                        "timestamp" to message.timestamp,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
+                .update(updateMap)
                 .await()
-            Log.d(tag, "Message sent to Firestore: ${message.id} in $conversationId")
+            Log.d(tag, "Message sent to Firestore: ${message.id} in $conversationId (recipient: $recipientId)")
         } catch (e: Exception) {
             Log.e(tag, "Failed to send message", e)
             throw e
+        }
+    }
+
+    suspend fun markConversationDeletedForUser(conversationId: String, userId: String) {
+        if (conversationId.isBlank() || userId.isBlank()) return
+        try {
+            firestore.collection("conversations").document(conversationId)
+                .update("deletedByUserIds", FieldValue.arrayUnion(userId))
+                .await()
+            Log.d(tag, "Marked conversation $conversationId deleted for user $userId in Firestore")
+        } catch (e: Exception) {
+            Log.w(tag, "markConversationDeletedForUser failed: ${e.message}")
+        }
+    }
+
+    suspend fun markConversationRead(conversationId: String, userId: String) {
+        try {
+            val updateMap = mutableMapOf<String, Any>(
+                "unreadCount" to 0
+            )
+            if (userId.isNotBlank()) {
+                updateMap["unreadCount_$userId"] = 0
+            }
+            firestore.collection("conversations").document(conversationId)
+                .update(updateMap)
+                .await()
+            Log.d(tag, "Marked conversation read on Firestore: $conversationId for user $userId")
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to mark conversation read on Firestore: ${e.message}")
+        }
+    }
+
+    /**
+     * Detailed logs handler and diagnostic tracer for Firestore message listeners.
+     */
+    object FirestoreMessageTraceLogger {
+        private const val TRACE_TAG = "FirestoreMessageTrace"
+
+        fun logSnapshotEvent(
+            conversationId: String,
+            snapshot: QuerySnapshot?,
+            error: FirebaseFirestoreException?
+        ) {
+            if (error != null) {
+                Log.e(TRACE_TAG, "❌ [ERROR] SnapshotListener failure for conversation '$conversationId': code=${error.code}, message='${error.message}'", error)
+                return
+            }
+            if (snapshot == null) {
+                Log.w(TRACE_TAG, "⚠️ [WARN] Snapshot payload is null for conversation '$conversationId'")
+                return
+            }
+            val isFromCache = snapshot.metadata.isFromCache
+            val hasPendingWrites = snapshot.metadata.hasPendingWrites()
+            val totalDocs = snapshot.documents.size
+            val changes = snapshot.documentChanges
+
+            Log.d(
+                TRACE_TAG,
+                "📡 [SNAPSHOT RECEIVED] Conversation: '$conversationId' | TotalDocs: $totalDocs | Changes: ${changes.size} | isFromCache: $isFromCache | hasPendingWrites: $hasPendingWrites"
+            )
+
+            for (change in changes) {
+                val doc = change.document
+                val type = change.type // ADDED, MODIFIED, REMOVED
+                val docId = doc.id
+                val senderId = doc.getString("senderId") ?: doc.getString("sender_id") ?: doc.getString("userId") ?: "UNKNOWN"
+                val textSnippet = (doc.getString("text") ?: doc.getString("message") ?: "").take(35)
+                val createdAtVal = doc.get("createdAt")
+
+                when (type) {
+                    DocumentChange.Type.ADDED -> {
+                        Log.d(TRACE_TAG, "  🟢 [MSG ADDED] id='$docId', sender='$senderId', text='$textSnippet...', createdAt=$createdAtVal")
+                    }
+                    DocumentChange.Type.MODIFIED -> {
+                        Log.d(TRACE_TAG, "  🟡 [MSG MODIFIED] id='$docId', sender='$senderId', text='$textSnippet...', createdAt=$createdAtVal")
+                    }
+                    DocumentChange.Type.REMOVED -> {
+                        Log.w(TRACE_TAG, "  🚨 [MSG DISAPPEARED / REMOVED FROM QUERY] id='$docId', sender='$senderId' was deleted or excluded from query!")
+                    }
+                }
+            }
+        }
+
+        fun logMappingSummary(
+            conversationId: String,
+            totalRawDocs: Int,
+            mappedCount: Int,
+            droppedDocs: List<String>
+        ) {
+            if (droppedDocs.isNotEmpty()) {
+                Log.w(
+                    TRACE_TAG,
+                    "⚠️ [MAPPING WARNING] Conv '$conversationId': mapped $mappedCount/$totalRawDocs messages. Dropped document IDs (missing essential content): $droppedDocs"
+                )
+            } else {
+                Log.d(
+                    TRACE_TAG,
+                    "✅ [MAPPING SUCCESS] Conv '$conversationId': successfully mapped all $mappedCount messages from Firestore documents."
+                )
+            }
         }
     }
 
@@ -417,34 +611,98 @@ class FirebaseFirestoreManager(private val context: Context) {
         currentUserId: String,
         onMessagesUpdated: (List<ChatMessage>) -> Unit
     ): ListenerRegistration {
+        Log.d(tag, "Attaching Firestore SnapshotListener for conversation messages: $conversationId (user: $currentUserId)")
         return firestore.collection("conversations").document(conversationId)
             .collection("messages")
-            .orderBy("createdAt", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                FirestoreMessageTraceLogger.logSnapshotEvent(conversationId, snapshot, error)
+
                 if (error != null) {
                     Log.e(tag, "Error listening to messages for $conversationId", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
+                    val droppedDocIds = mutableListOf<String>()
                     val messages = snapshot.documents.mapNotNull { doc ->
                         val id = doc.getString("id") ?: doc.id
-                        val senderId = doc.getString("senderId") ?: return@mapNotNull null
-                        val senderName = doc.getString("senderName") ?: "Student"
-                        val text = doc.getString("text") ?: ""
-                        val timestamp = doc.getString("timestamp") ?: ""
+
+                        // Robust multi-key resolution for sender ID to prevent dropping valid messages
+                        val senderId = doc.getString("senderId")
+                            ?: doc.getString("sender_id")
+                            ?: doc.getString("userId")
+                            ?: doc.getString("authorId")
+                            ?: doc.getString("fromId")
+                            ?: ""
+
+                        val text = doc.getString("text")
+                            ?: doc.getString("message")
+                            ?: doc.getString("content")
+                            ?: ""
+
+                        // Only drop if both senderId and text are completely missing or invalid
+                        if (senderId.isBlank() && text.isBlank()) {
+                            Log.w(tag, "Dropping empty message document $id with data: ${doc.data}")
+                            droppedDocIds.add(id)
+                            return@mapNotNull null
+                        }
+
+                        val senderName = doc.getString("senderName")
+                            ?: doc.getString("sender_name")
+                            ?: doc.getString("authorName")
+                            ?: "Student"
+
+                        val timestamp = doc.getString("timestamp")
+                            ?: doc.getString("time")
+                            ?: "Just now"
+
+                        val senderAvatarUri = doc.getString("senderAvatarUri")?.takeIf { it.isNotBlank() }
+                            ?: doc.getString("avatarUri")?.takeIf { it.isNotBlank() }
+                            ?: doc.getString("sender_avatar")?.takeIf { it.isNotBlank() }
+
                         val isMe = senderId == currentUserId
+                        val hasPendingWrites = doc.metadata.hasPendingWrites()
+
+                        // Extract creation timestamp for reliable in-memory chronological ordering
+                        val rawCreatedAt = when (val cVal = doc.get("createdAt")) {
+                            is Long -> cVal
+                            is Number -> cVal.toLong()
+                            is com.google.firebase.Timestamp -> cVal.toDate().time
+                            else -> 0L
+                        }
+                        val createdAt = if (rawCreatedAt == 0L && hasPendingWrites) {
+                            System.currentTimeMillis()
+                        } else {
+                            rawCreatedAt
+                        }
 
                         ChatMessage(
                             id = id,
-                            senderId = senderId,
+                            senderId = senderId.ifBlank { "unknown_sender" },
                             senderName = senderName,
                             text = text,
                             timestamp = timestamp,
-                            isMe = isMe
-                        )
+                            isMe = isMe,
+                            senderAvatarUri = senderAvatarUri,
+                            senderAvatarRes = null,
+                            isPending = hasPendingWrites
+                        ) to createdAt
                     }
-                    Log.d(tag, "Live messages received for $conversationId: ${messages.size}")
-                    onMessagesUpdated(messages)
+
+                    // Sort chronologically using creation timestamp or document order
+                    val sortedMessages = messages.sortedWith(
+                        compareBy<Pair<ChatMessage, Long>> { it.second }
+                            .thenBy { it.first.timestamp }
+                            .thenBy { it.first.id }
+                    ).map { it.first }
+
+                    FirestoreMessageTraceLogger.logMappingSummary(
+                        conversationId = conversationId,
+                        totalRawDocs = snapshot.documents.size,
+                        mappedCount = sortedMessages.size,
+                        droppedDocs = droppedDocIds
+                    )
+
+                    onMessagesUpdated(sortedMessages)
                 }
             }
     }

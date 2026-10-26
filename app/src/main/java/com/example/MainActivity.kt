@@ -67,10 +67,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp() {
     val isLoggedIn by MarketplaceRepository.isLoggedIn.collectAsState()
+    var isGuestMode by remember { mutableStateOf(false) }
     var isAppLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        delay(750)
+        delay(600)
         isAppLoading = false
     }
 
@@ -82,20 +83,27 @@ fun MainApp() {
         if (loading) {
             AppLoadingSplashScreen()
         } else {
+            val showMain = isLoggedIn || isGuestMode
             Crossfade(
-                targetState = isLoggedIn,
+                targetState = showMain,
                 animationSpec = tween(300),
                 label = "authCrossfade"
-            ) { loggedIn ->
-                if (!loggedIn) {
+            ) { mainVisible ->
+                if (!mainVisible) {
                     AuthScreen(
                         onAuthSuccess = {
-                            // User authenticated, main app will display smoothly
+                            isGuestMode = false
                         },
-                        onDismiss = null
+                        onDismiss = {
+                            isGuestMode = true
+                        }
                     )
                 } else {
-                    MainAppContent()
+                    MainAppContent(
+                        onRequestLogin = {
+                            isGuestMode = false
+                        }
+                    )
                 }
             }
         }
@@ -138,7 +146,7 @@ fun AppLoadingSplashScreen() {
                     .clip(RoundedCornerShape(26.dp))
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_bookswipe_logo),
+                    painter = painterResource(id = R.drawable.ic_bookswap_logo),
                     contentDescription = "BookSwap App Icon",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -176,7 +184,9 @@ fun AppLoadingSplashScreen() {
 }
 
 @Composable
-private fun MainAppContent() {
+private fun MainAppContent(
+    onRequestLogin: () -> Unit = {}
+) {
     val conversations by MarketplaceRepository.conversations.collectAsState()
     val bookSets by MarketplaceRepository.bookSets.collectAsState()
     val notifications by MarketplaceRepository.notifications.collectAsState()
@@ -303,6 +313,7 @@ private fun MainAppContent() {
                                     },
                                     onRequireLogin = {
                                         MarketplaceRepository.logout()
+                                        onRequestLogin()
                                     }
                                 )
                             }
@@ -326,6 +337,7 @@ private fun MainAppContent() {
                                     },
                                     onRequireLogin = {
                                         MarketplaceRepository.logout()
+                                        onRequestLogin()
                                     }
                                 )
                             }

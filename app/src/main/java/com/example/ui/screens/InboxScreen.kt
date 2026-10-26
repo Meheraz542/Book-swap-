@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -10,6 +12,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
@@ -19,18 +23,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.MarketplaceRepository
 import com.example.model.Conversation
 import com.example.ui.components.*
 import com.example.ui.theme.*
+
+private data class ConversationDisplayData(
+    val name: String,
+    val college: String,
+    val avatarUri: String?,
+    val avatarRes: Int?
+)
 
 @Composable
 fun InboxScreen(
@@ -39,15 +53,52 @@ fun InboxScreen(
     modifier: Modifier = Modifier
 ) {
     val conversations by MarketplaceRepository.conversations.collectAsState()
+    val currentUser by MarketplaceRepository.currentUser.collectAsState()
+    val allUsers by MarketplaceRepository.allUsers.collectAsState()
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedConversationIds by remember { mutableStateOf(setOf<String>()) }
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
 
-    val filteredConversations = remember(conversations, searchQuery) {
+    BackHandler(enabled = isSelectionMode) {
+        isSelectionMode = false
+        selectedConversationIds = emptySet()
+    }
+
+    val filteredConversations = remember(conversations, allUsers, currentUser, searchQuery) {
         val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) conversations
-        else conversations.filter {
-            it.otherUserName.lowercase().contains(q) ||
-                    it.setTitle.lowercase().contains(q) ||
-                    it.lastMessage.lowercase().contains(q)
+        // Filter out conversations deleted from this user's inbox
+        val activeConversations = conversations.filter { conv ->
+            currentUser.id !in conv.deletedByUserIds
+        }
+        // Sort conversations by most recent message, placing active chat at the top
+        val sortedConversations = activeConversations.sortedWith(
+            compareByDescending<Conversation> { it.updatedAt }
+                .thenByDescending { it.timestamp.equals("Just now", ignoreCase = true) }
+        )
+        val list = sortedConversations.map { conv ->
+            val otherUserId = conv.getOtherUserId(currentUser.id)
+            val matchedUser = allUsers.find { it.id == otherUserId }
+            val resolvedName = matchedUser?.name ?: conv.getEffectiveOtherUserName(currentUser.id)
+            val resolvedCollege = matchedUser?.college ?: conv.getEffectiveOtherUserCollege(currentUser.id)
+            val resolvedAvatarUri = matchedUser?.profilePhotoUri ?: conv.getEffectiveOtherUserAvatarUri(currentUser.id)
+            val resolvedAvatarRes = matchedUser?.profilePhotoRes ?: conv.otherUserAvatarRes
+            Pair(
+                conv,
+                ConversationDisplayData(
+                    name = resolvedName,
+                    college = resolvedCollege,
+                    avatarUri = resolvedAvatarUri,
+                    avatarRes = resolvedAvatarRes
+                )
+            )
+        }
+        if (q.isEmpty()) list
+        else list.filter { (conv, display) ->
+            display.name.lowercase().contains(q) ||
+                    conv.setTitle.lowercase().contains(q) ||
+                    conv.lastMessage.lowercase().contains(q)
         }
     }
 
@@ -61,36 +112,118 @@ fun InboxScreen(
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                // Header with profile icon, title, and new compose icon
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GlassIconButton(
-                        onClick = onNavigateToProfile,
-                        icon = Icons.Outlined.Person,
-                        contentDescription = "Profile",
-                        tone = GlassIconTone.FROSTED_WHITE,
-                        size = 42.dp,
-                        testTag = "inbox_btn_profile"
-                    )
+                if (isSelectionMode) {
+                    // Bulk Selection Mode Top Bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            GlassIconButton(
+                                onClick = {
+                                    isSelectionMode = false
+                                    selectedConversationIds = emptySet()
+                                },
+                                icon = Icons.Default.Close,
+                                contentDescription = "Cancel selection",
+                                tone = GlassIconTone.FROSTED_WHITE,
+                                size = 42.dp,
+                                testTag = "inbox_btn_cancel_selection"
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "${selectedConversationIds.size} Selected",
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
 
-                    Text(
-                        text = "Inbox",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val allSelected = filteredConversations.isNotEmpty() &&
+                                    selectedConversationIds.size == filteredConversations.size
 
-                    GlassIconButton(
-                        onClick = {},
-                        icon = Icons.Outlined.EditNote,
-                        contentDescription = "New message",
-                        tone = GlassIconTone.PRIMARY_PURPLE,
-                        size = 42.dp,
-                        testTag = "inbox_btn_new_message"
-                    )
+                            Surface(
+                                onClick = {
+                                    selectedConversationIds = if (allSelected) {
+                                        emptySet()
+                                    } else {
+                                        filteredConversations.map { it.first.id }.toSet()
+                                    }
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                color = PrimaryPurpleLight.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.3f)),
+                                modifier = Modifier
+                                    .height(40.dp)
+                                    .testTag("inbox_btn_toggle_select_all")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                ) {
+                                    Text(
+                                        text = if (allSelected) "Deselect" else "Select All",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = PrimaryPurple
+                                    )
+                                }
+                            }
+
+                            GlassIconButton(
+                                onClick = {
+                                    if (selectedConversationIds.isNotEmpty()) {
+                                        showBulkDeleteDialog = true
+                                    }
+                                },
+                                icon = Icons.Outlined.Delete,
+                                contentDescription = "Delete selected chats",
+                                tone = if (selectedConversationIds.isNotEmpty()) GlassIconTone.DANGER else GlassIconTone.FROSTED_WHITE,
+                                size = 42.dp,
+                                testTag = "inbox_btn_bulk_delete"
+                            )
+                        }
+                    }
+                } else {
+                    // Standard Header with profile, title, and edit mode button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GlassIconButton(
+                            onClick = onNavigateToProfile,
+                            icon = Icons.Outlined.Person,
+                            contentDescription = "Profile",
+                            tone = GlassIconTone.FROSTED_WHITE,
+                            size = 42.dp,
+                            testTag = "inbox_btn_profile"
+                        )
+
+                        Text(
+                            text = "Inbox",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        GlassIconButton(
+                            onClick = {
+                                isSelectionMode = true
+                                selectedConversationIds = emptySet()
+                            },
+                            icon = Icons.Outlined.EditNote,
+                            contentDescription = "Edit / Select multiple chats",
+                            tone = GlassIconTone.PRIMARY_PURPLE,
+                            size = 42.dp,
+                            testTag = "inbox_btn_edit_mode"
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -213,45 +346,143 @@ fun InboxScreen(
                     }
                 }
             } else {
-                items(filteredConversations, key = { it.id }, contentType = { "conversation" }) { conv ->
+                items(filteredConversations, key = { it.first.id }, contentType = { "conversation" }) { (conv, display) ->
+                    val isSelected = conv.id in selectedConversationIds
                     ConversationItem(
                         conversation = conv,
-                        onClick = { onNavigateToChat(conv) }
+                        display = display,
+                        isSelectionMode = isSelectionMode,
+                        isSelected = isSelected,
+                        onToggleSelect = {
+                            selectedConversationIds = if (isSelected) {
+                                selectedConversationIds - conv.id
+                            } else {
+                                selectedConversationIds + conv.id
+                            }
+                        },
+                        onClick = {
+                            if (isSelectionMode) {
+                                selectedConversationIds = if (isSelected) {
+                                    selectedConversationIds - conv.id
+                                } else {
+                                    selectedConversationIds + conv.id
+                                }
+                            } else {
+                                MarketplaceRepository.markConversationAsRead(conv.id)
+                                onNavigateToChat(conv)
+                            }
+                        }
                     )
                 }
             }
         }
+    }
+
+    if (showBulkDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showBulkDeleteDialog = false },
+            title = {
+                Text(
+                    text = "Delete ${selectedConversationIds.size} Chat${if (selectedConversationIds.size > 1) "s" else ""}?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "These chat threads will be permanently removed from your inbox. If either student sends a new message in the future, the thread will reappear automatically.",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val count = selectedConversationIds.size
+                        MarketplaceRepository.deleteConversations(selectedConversationIds.toList())
+                        Toast.makeText(context, "$count chat${if (count > 1) "s" else ""} deleted from inbox", Toast.LENGTH_SHORT).show()
+                        selectedConversationIds = emptySet()
+                        isSelectionMode = false
+                        showBulkDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    modifier = Modifier.testTag("inbox_confirm_bulk_delete")
+                ) {
+                    Text("Delete", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showBulkDeleteDialog = false },
+                    modifier = Modifier.testTag("inbox_cancel_bulk_delete")
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White
+        )
     }
 }
 
 @Composable
 private fun ConversationItem(
     conversation: Conversation,
+    display: ConversationDisplayData,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
     onClick: () -> Unit
 ) {
+    val hasPending = conversation.messages.any { it.isPending }
+    val isUnread = conversation.unreadCount > 0
+
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("conversation_item_${conversation.id}"),
         onClick = onClick,
         shape = RoundedCornerShape(22.dp),
-        elevation = 3.dp
+        elevation = if (isUnread || isSelected) 4.dp else 2.dp,
+        borderBrush = if (isSelected) Brush.linearGradient(listOf(PrimaryPurple, PrimaryPurpleEnd)) else GlassRimBrush,
+        backgroundColor = if (isSelected) PrimaryPurpleLight.copy(alpha = 0.25f) else CardGlass
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // User Avatar with potential online badge
+            // Checkbox for selection mode
+            if (isSelectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = PrimaryPurple,
+                        uncheckedColor = Color(0xFF94A3B8)
+                    ),
+                    modifier = Modifier.testTag("checkbox_conversation_${conversation.id}")
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
+            // User Avatar with online status and unread indicator dot
             Box {
                 Surface(
                     modifier = Modifier.size(52.dp),
                     shape = CircleShape,
                     color = Color(0xFFE2E8F0)
                 ) {
-                    if (conversation.otherUserAvatarRes != null) {
+                    if (!display.avatarUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = display.avatarUri,
+                            contentDescription = display.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (display.avatarRes != null) {
                         Image(
-                            painter = painterResource(id = conversation.otherUserAvatarRes),
-                            contentDescription = conversation.otherUserName,
+                            painter = painterResource(id = display.avatarRes),
+                            contentDescription = display.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -279,6 +510,20 @@ private fun ConversationItem(
                             .background(Color(0xFF10B981))
                     )
                 }
+
+                // Red unread notification dot badge on avatar
+                if (isUnread) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444))
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(14.dp))
@@ -290,16 +535,17 @@ private fun ConversationItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = conversation.otherUserName,
+                        text = display.name,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = if (isUnread) FontWeight.ExtraBold else FontWeight.Bold,
                         color = TextPrimary
                     )
 
                     Text(
                         text = conversation.timestamp,
                         fontSize = 12.sp,
-                        color = TextMuted
+                        color = if (isUnread) PrimaryPurple else TextMuted,
+                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
                     )
                 }
 
@@ -310,31 +556,47 @@ private fun ConversationItem(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val messageSnippet = if (hasPending && conversation.lastMessage.isNotBlank()) {
+                        "Sending: ${conversation.lastMessage}"
+                    } else {
+                        conversation.lastMessage.ifBlank { "Started conversation" }
+                    }
+
                     Text(
-                        text = conversation.lastMessage,
+                        text = messageSnippet,
                         fontSize = 13.sp,
-                        color = if (conversation.unreadCount > 0) TextPrimary else TextMuted,
-                        fontWeight = if (conversation.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isUnread) TextPrimary else if (hasPending) PrimaryPurple else TextMuted,
+                        fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Normal,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
 
-                    if (conversation.unreadCount > 0) {
+                    if (isUnread) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFEF4444)),
+                                .height(20.dp)
+                                .defaultMinSize(minWidth = 20.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFEF4444))
+                                .padding(horizontal = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = conversation.unreadCount.toString(),
+                                text = if (conversation.unreadCount > 99) "99+" else conversation.unreadCount.toString(),
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                    } else if (hasPending) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(PrimaryPurple)
+                        )
                     }
                 }
             }

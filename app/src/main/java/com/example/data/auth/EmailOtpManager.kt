@@ -100,16 +100,16 @@ class EmailOtpManager(private val context: Context) {
         val trimmedPhone = phone.trim()
 
         if (trimmedName.length < 2) {
-            return OtpResult.Error("অনুগ্রহ করে আপনার পুরো নাম দিন (Please enter your full name).")
+            return OtpResult.Error("Please enter your full name.")
         }
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
-            return OtpResult.Error("অনুগ্রহ করে একটি সঠিক জিমেইল/ইমেইল দিন (Please enter a valid email address).")
+            return OtpResult.Error("Please enter a valid Gmail / email address.")
         }
         if (password.length < 6) {
-            return OtpResult.Error("পাসওয়ার্ড ন্যূনতম ৬ অক্ষরের হতে হবে (Password must be at least 6 characters).")
+            return OtpResult.Error("Password must be at least 6 characters.")
         }
         if (trimmedPhone.length < 6) {
-            return OtpResult.Error("অনুগ্রহ করে একটি সচল ফোন নম্বর দিন (Please enter a valid phone number).")
+            return OtpResult.Error("Please enter a valid phone number.")
         }
 
         val otp = generateOtp()
@@ -142,7 +142,7 @@ class EmailOtpManager(private val context: Context) {
 
     fun resendOtp(): OtpResult {
         val pending = pendingRegistration ?: loadPendingFromPrefs()
-            ?: return OtpResult.Error("কোনো সক্রিয় রেজিস্ট্রেশন পাওয়া যায়নি। অনুগ্রহ করে পুনরায় সাইন আপ করুন।")
+            ?: return OtpResult.Error("No active registration found. Please sign up again.")
 
         val newOtp = generateOtp()
         val newExpiresAt = System.currentTimeMillis() + (5 * 60 * 1000L)
@@ -167,14 +167,14 @@ class EmailOtpManager(private val context: Context) {
 
     fun verifyOtp(enteredCode: String): Result<PendingRegistration> {
         val pending = pendingRegistration ?: loadPendingFromPrefs()
-            ?: return Result.failure(IllegalStateException("রেজিস্ট্রেশন প্রক্রিয়া মেয়াদোত্তীর্ণ হয়েছে। অনুগ্রহ করে আবার শুরু করুন।"))
+            ?: return Result.failure(IllegalStateException("Registration session expired. Please start again."))
 
         if (System.currentTimeMillis() > pending.expiresAt) {
-            return Result.failure(IllegalStateException("ওটিপি কোডের মেয়াদ শেষ হয়েছে! 'Resend Code'-এ ট্যাপ করে নতুন কোড নিন।"))
+            return Result.failure(IllegalStateException("OTP code has expired! Tap 'Resend OTP' to receive a new code."))
         }
 
         if (enteredCode.trim() != pending.otpCode) {
-            return Result.failure(IllegalArgumentException("ভুল ওটিপি কোড! অনুগ্রহ করে আপনার জিমেইলে আসা ৬-সংখ্যার কোডটি দিন।"))
+            return Result.failure(IllegalArgumentException("Invalid OTP code! Please enter the 6-digit code sent to your Gmail."))
         }
 
         // Verification successful, consume pending registration
@@ -251,11 +251,11 @@ class EmailOtpManager(private val context: Context) {
 
             val builder = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentTitle("Gmail • পলিটেকনিক বুক এক্সচেঞ্জ")
-                .setContentText("আপনার ভেরিফিকেশন কোড: $otp")
+                .setContentTitle("Gmail • Polytechnic Book Exchange")
+                .setContentText("Your verification code: $otp")
                 .setStyle(
                     NotificationCompat.BigTextStyle()
-                        .bigText("আপনার শিক্ষার্থী অ্যাকাউন্ট ($email) ভেরিফাই করার জন্য ওটিপি কোড: $otp। এই কোডটি ৫ মিনিট কার্যকর থাকবে।")
+                        .bigText("Your student account verification code for $email is: $otp. This code expires in 5 minutes.")
                 )
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)

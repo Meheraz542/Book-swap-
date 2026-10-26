@@ -111,7 +111,7 @@ fun HomeScreen(
     val matchingSets = remember(bookSets, selectedCollege, selectedSemester, selectedTechnology) {
         bookSets.filter { set ->
             val matchesStatus = set.status == SetStatus.AVAILABLE
-            val matchesCollege = set.college.trim().equals(selectedCollege.trim(), ignoreCase = true)
+            val matchesCollege = CollegeDirectory.matchesCollege(set.college, selectedCollege)
             val matchesSemester = selectedSemester == null || set.semester == selectedSemester
             val matchesTechnology = selectedTechnology == null || set.technology == selectedTechnology
             matchesStatus && matchesCollege && matchesSemester && matchesTechnology
@@ -1132,7 +1132,7 @@ private fun HomeHeader(
                     .clickable { onAvatarClick() }
             ) {
                 Image(
-                    painter = painterResource(id = com.example.R.drawable.ic_bookswipe_logo),
+                    painter = painterResource(id = com.example.R.drawable.ic_bookswap_logo),
                     contentDescription = "BookSwap Logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

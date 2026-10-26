@@ -148,6 +148,12 @@ interface ChatDao {
     @Query("UPDATE conversations SET unreadCount = 0 WHERE id = :convId")
     suspend fun markConversationRead(convId: String)
 
+    @Query("SELECT * FROM conversations WHERE id = :convId LIMIT 1")
+    suspend fun getConversationById(convId: String): ConversationEntity?
+
+    @Query("UPDATE conversations SET deletedByUserIds = :deletedByUserIds WHERE id = :convId")
+    suspend fun updateDeletedByUserIds(convId: String, deletedByUserIds: String)
+
     @Query("DELETE FROM conversations")
     suspend fun clearAllConversations()
 

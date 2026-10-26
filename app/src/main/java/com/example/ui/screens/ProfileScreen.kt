@@ -288,27 +288,6 @@ fun ProfileScreen(
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
-
-                        if (isLoggedIn) {
-                            TextButton(
-                                onClick = { showEditProfileDialog = true },
-                                modifier = Modifier.testTag("btn_edit_account_info")
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Edit,
-                                    contentDescription = "Edit Profile",
-                                    tint = PrimaryPurple,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Edit",
-                                    color = PrimaryPurple,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))

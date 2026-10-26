@@ -107,9 +107,74 @@ object MarketplaceRepository {
     private val _trafficStats = MutableStateFlow(AppTrafficStats())
     val trafficStats: StateFlow<AppTrafficStats> = _trafficStats.asStateFlow()
 
+    // Single source of truth in-memory cache for user profiles across messaging and app
+    private val _userProfileCache = java.util.concurrent.ConcurrentHashMap<String, UserProfile>()
+
     init {
         // Pristine clean initial state - no demo data
         _allUsers.value = listOf(defaultAdminProfile)
+        _userProfileCache[defaultAdminProfile.id] = defaultAdminProfile
+    }
+
+    /**
+     * Single Source of Truth for fetching user profiles asynchronously in the messaging module.
+     * Evaluates in-memory cache -> current user -> allUsers -> local Room DB -> remote Cloud Firestore.
+     */
+    suspend fun getUserProfileAsync(userId: String): UserProfile? = withContext(Dispatchers.IO) {
+        if (userId.isBlank() || userId == "unknown_sender") return@withContext null
+
+        // 1. In-memory profile cache
+        _userProfileCache[userId]?.let { return@withContext it }
+
+        // 2. Active session user
+        val activeUser = _currentUser.value
+        if (activeUser.id == userId && activeUser.id.isNotBlank()) {
+            _userProfileCache[userId] = activeUser
+            return@withContext activeUser
+        }
+
+        // 3. Registered users directory
+        _allUsers.value.find { it.id == userId }?.let {
+            _userProfileCache[userId] = it
+            return@withContext it
+        }
+
+        // 4. Local Room SQLite Database
+        val db = database
+        if (db != null) {
+            val dbUser = db.userDao().getUserById(userId)
+            if (dbUser != null) {
+                val profile = dbUser.toDomain()
+                _userProfileCache[userId] = profile
+                return@withContext profile
+            }
+        }
+
+        // 5. Remote Cloud Firestore Fetch
+        val fs = firestoreManager
+        if (fs != null) {
+            try {
+                val remoteProfile = fs.getUserProfile(userId)
+                if (remoteProfile != null) {
+                    _userProfileCache[userId] = remoteProfile
+                    db?.userDao()?.insertUser(remoteProfile.toEntity())
+                    return@withContext remoteProfile
+                }
+            } catch (e: Exception) {
+                Log.w("MarketplaceRepo", "Remote profile lookup failed for $userId: ${e.message}")
+            }
+        }
+
+        null
+    }
+
+    /**
+     * Synchronous immediate profile lookup from cached single source of truth.
+     */
+    fun getCachedUserProfile(userId: String): UserProfile? {
+        if (userId.isBlank()) return null
+        if (_currentUser.value.id == userId && _currentUser.value.id.isNotBlank()) return _currentUser.value
+        return _userProfileCache[userId] ?: _allUsers.value.find { it.id == userId }
     }
 
     fun initialize(context: Context) {
@@ -120,6 +185,81 @@ object MarketplaceRepository {
         val auth = AuthManager(context, firestore)
         authManager = auth
         emailOtpManager = EmailOtpManager(context.applicationContext)
+
+        // Attach persistent Firebase Auth State Listener to ensure user sessions remain active
+        // across app restarts and consistently propagate authentication state to the repository layer.
+        try {
+            val firebaseAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
+            firebaseAuth.addAuthStateListener { authInstance ->
+                val fbUser = authInstance.currentUser
+                Log.d(
+                    "MarketplaceRepo",
+                    "FirebaseAuth.AuthStateListener invoked: uid=${fbUser?.uid}, email=${fbUser?.email}"
+                )
+                scope.launch(Dispatchers.IO) {
+                    val currentDb = database ?: return@launch
+                    if (fbUser != null) {
+                        val email = fbUser.email?.trim()?.lowercase() ?: ""
+                        val existing = if (email.isNotEmpty()) {
+                            currentDb.userDao().getUserByEmail(email)
+                        } else {
+                            currentDb.userDao().getUserById(fbUser.uid)
+                        }
+
+                        val userEntity = if (existing != null) {
+                            currentDb.userDao().switchActiveSession(existing.id)
+                            existing
+                        } else {
+                            val isAdmin = email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
+                            val newEntity = UserEntity(
+                                id = fbUser.uid,
+                                name = fbUser.displayName ?: if (isAdmin) "Super Admin" else "Student User",
+                                email = email,
+                                passwordHash = "",
+                                phone = "01712-345678",
+                                college = if (isAdmin) "Feni Computer Institute" else "Feni Polytechnic Institute",
+                                technologyId = if (isAdmin) Technology.CSE.id else Technology.CIVIL.id,
+                                semesterId = if (isAdmin) Semester.SEM_3.id else Semester.SEM_1.id,
+                                profilePhotoRes = null,
+                                profilePhotoUri = fbUser.photoUrl?.toString(),
+                                role = if (isAdmin) "ADMIN" else "USER",
+                                accountStatus = "ACTIVE",
+                                isCurrentSession = true
+                            )
+                            currentDb.userDao().insertUser(newEntity)
+                            currentDb.userDao().switchActiveSession(newEntity.id)
+                            newEntity
+                        }
+                        val domainProfile = userEntity.toDomain()
+                        _currentUser.value = domainProfile
+                        _isLoggedIn.value = true
+                        _userProfileCache[domainProfile.id] = domainProfile
+                        Log.d("MarketplaceRepo", "Propagated active session to repo for ${domainProfile.id} (${domainProfile.email})")
+
+                        try {
+                            firestoreManager?.saveUserProfile(domainProfile)
+                        } catch (e: Exception) {
+                            Log.d("MarketplaceRepo", "Async profile sync note on auth listener: ${e.message}")
+                        }
+                    } else {
+                        // When Firebase Auth has no user, check if local Room session was stored
+                        val currentLocal = currentDb.userDao().getCurrentUser()
+                        if (currentLocal != null && currentLocal.isCurrentSession) {
+                            val localDomain = currentLocal.toDomain()
+                            _currentUser.value = localDomain
+                            _isLoggedIn.value = true
+                            _userProfileCache[localDomain.id] = localDomain
+                            Log.d("MarketplaceRepo", "Restored local session from Room: ${localDomain.id}")
+                        } else {
+                            _isLoggedIn.value = false
+                            Log.d("MarketplaceRepo", "No active session detected across Firebase Auth and Room.")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MarketplaceRepo", "Failed to register FirebaseAuth AuthStateListener", e)
+        }
 
         // Real-Time Cloud Firestore Listeners for cross-device synchronization
         try {
@@ -148,26 +288,68 @@ object MarketplaceRepository {
 
         // Real-Time Cloud Firestore Listeners for User Directory and Conversations
         try {
-            // Listen to all users for admin directory and live sync
+            // Listen to all users for admin directory, cache, and live sync
             firestore.listenAllUsers { firestoreUsers ->
                 if (firestoreUsers.isNotEmpty()) {
                     _allUsers.value = firestoreUsers
+                    for (u in firestoreUsers) {
+                        _userProfileCache[u.id] = u
+                    }
+                    val current = _currentUser.value
+                    if (current.id.isNotBlank()) {
+                        val matched = firestoreUsers.find { it.id == current.id }
+                        if (matched != null && (matched.name != current.name || matched.college != current.college || matched.profilePhotoUri != current.profilePhotoUri || matched.phone != current.phone || matched.role != current.role || matched.accountStatus != current.accountStatus)) {
+                            _currentUser.value = matched
+                            syncUserToRoom(matched)
+                        }
+                    }
                     Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
                 }
             }
 
-            // Dynamically listen to conversations for current active session
+            // Dynamically listen to current user profile & conversations for active session
             var conversationsReg: com.google.firebase.firestore.ListenerRegistration? = null
+            var userProfileReg: com.google.firebase.firestore.ListenerRegistration? = null
             scope.launch {
                 currentUser.collect { user ->
+                    userProfileReg?.remove()
+                    userProfileReg = null
                     conversationsReg?.remove()
                     conversationsReg = null
                     if (user.id.isNotBlank()) {
+                        userProfileReg = firestore.listenUserProfile(user.id) { updatedProfile ->
+                            if (updatedProfile != _currentUser.value) {
+                                _currentUser.value = updatedProfile
+                                _userProfileCache[updatedProfile.id] = updatedProfile
+                                _allUsers.update { list ->
+                                    list.map { if (it.id == updatedProfile.id) updatedProfile else it }
+                                }
+                                syncUserToRoom(updatedProfile)
+                                Log.d("MarketplaceRepo", "Real-time user profile updated: ${updatedProfile.name}")
+                            }
+                        }
                         conversationsReg = firestore.listenConversations(user.id) { firestoreConvs ->
-                            _conversations.value = firestoreConvs
+                            _conversations.update { currentList ->
+                                val currentMap = currentList.associateBy { it.id }
+                                val remoteIds = firestoreConvs.map { it.id }.toSet()
+                                val mergedRemote = firestoreConvs.map { remoteConv ->
+                                    val existing = currentMap[remoteConv.id]
+                                    val preservedMessages = if (remoteConv.messages.isNotEmpty()) {
+                                        val remoteMsgIds = remoteConv.messages.map { it.id }.toSet()
+                                        val pendingLocal = (existing?.messages ?: emptyList()).filter { it.id !in remoteMsgIds }
+                                        (remoteConv.messages + pendingLocal)
+                                    } else {
+                                        existing?.messages ?: emptyList()
+                                    }
+                                    remoteConv.copy(messages = preservedMessages)
+                                }
+                                val localOnlyConvs = currentList.filter { it.id !in remoteIds }
+                                (mergedRemote + localOnlyConvs).sortedByDescending { it.updatedAt }
+                            }
+                            val updatedConvs = _conversations.value
                             database?.let { db ->
                                 scope.launch(Dispatchers.IO) {
-                                    for (conv in firestoreConvs) {
+                                    for (conv in updatedConvs) {
                                         db.chatDao().insertConversation(conv.toEntity())
                                     }
                                 }
@@ -284,14 +466,33 @@ object MarketplaceRepository {
                     db.chatDao().getAllConversationsFlow(),
                     db.chatDao().getAllMessagesFlow()
                 ) { convs, messages ->
+                    val curUserId = _currentUser.value.id
                     if (convs.isNotEmpty()) {
-                        convs.map { it.toDomain(messages) }
+                        convs.map { it.toDomain(messages, curUserId) }
                     } else {
                         emptyList()
                     }
                 }.collect { domainConvs ->
-                    if (_conversations.value.isEmpty() && domainConvs.isNotEmpty()) {
+                    val currentConvs = _conversations.value
+                    if (currentConvs.isEmpty()) {
                         _conversations.value = domainConvs
+                    } else {
+                        val domainMap = domainConvs.associateBy { it.id }
+                        _conversations.update { list ->
+                            list.map { conv ->
+                                val fromRoom = domainMap[conv.id]
+                                if (fromRoom != null && fromRoom.messages.isNotEmpty()) {
+                                    val mergedMsgs = (fromRoom.messages + conv.messages).distinctBy { it.id }
+                                    conv.copy(
+                                        messages = mergedMsgs,
+                                        lastMessage = mergedMsgs.lastOrNull()?.text ?: conv.lastMessage,
+                                        timestamp = mergedMsgs.lastOrNull()?.timestamp ?: conv.timestamp
+                                    )
+                                } else {
+                                    conv
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -408,33 +609,42 @@ object MarketplaceRepository {
     }
 
     // Send a message
-    fun sendMessage(conversationId: String, text: String) {
+    fun sendMessage(conversationId: String, text: String): ChatMessage {
         val user = _currentUser.value
+        val now = System.currentTimeMillis()
         val newMsg = ChatMessage(
             id = "msg_" + UUID.randomUUID().toString().take(8),
             senderId = user.id,
             senderName = user.name,
             text = text,
             timestamp = "Just now",
-            isMe = true
+            isMe = true,
+            senderAvatarUri = user.profilePhotoUri,
+            senderAvatarRes = user.profilePhotoRes,
+            isPending = true
         )
         recordChatInquiry()
         _conversations.update { list ->
-            list.map { conv ->
+            val updated = list.map { conv ->
                 if (conv.id == conversationId) {
+                    val updatedMsgs = (conv.messages + newMsg).distinctBy { it.id }
                     conv.copy(
-                        messages = conv.messages + newMsg,
+                        messages = updatedMsgs,
                         lastMessage = text,
-                        timestamp = "Just now"
+                        timestamp = "Just now",
+                        updatedAt = now,
+                        deletedByUserIds = emptyList() // Thread automatically reappears in inbox on new message
                     )
                 } else conv
             }
+            updated.sortedByDescending { it.updatedAt }
         }
 
         database?.let { db ->
             scope.launch(Dispatchers.IO) {
                 db.chatDao().insertMessage(newMsg.toEntity(conversationId))
                 db.chatDao().updateConversationSnippet(conversationId, text, "Just now")
+                db.chatDao().updateDeletedByUserIds(conversationId, "")
             }
         }
 
@@ -447,6 +657,7 @@ object MarketplaceRepository {
                 }
             }
         }
+        return newMsg
     }
 
     // Attach real-time listener to conversation messages
@@ -456,19 +667,34 @@ object MarketplaceRepository {
     ): com.google.firebase.firestore.ListenerRegistration? {
         val fs = firestoreManager ?: return null
         val currentUserId = _currentUser.value.id
+        Log.d("MarketplaceRepo", "Attaching listenMessages for $conversationId (currentUserId=$currentUserId)")
         return fs.listenMessages(conversationId, currentUserId) { liveMsgs ->
+            Log.d("MarketplaceRepo", "listenMessages callback: received ${liveMsgs.size} messages for conversation $conversationId")
+            val liveIds = liveMsgs.map { it.id }.toSet()
+            var currentMergedMessages = liveMsgs
+            val now = System.currentTimeMillis()
+
             _conversations.update { list ->
-                list.map { conv ->
+                val updated = list.map { conv ->
                     if (conv.id == conversationId) {
+                        // Preserve in-flight local messages that haven't appeared in remote yet
+                        val pendingLocal = conv.messages.filter { it.id !in liveIds }
+                        val merged = (liveMsgs + pendingLocal)
+                        currentMergedMessages = merged
+                        val latestTime = merged.lastOrNull()?.timestamp ?: conv.timestamp
+                        val shouldRevive = liveMsgs.size > conv.messages.size
                         conv.copy(
-                            messages = liveMsgs,
-                            lastMessage = liveMsgs.lastOrNull()?.text ?: conv.lastMessage,
-                            timestamp = liveMsgs.lastOrNull()?.timestamp ?: conv.timestamp
+                            messages = merged,
+                            lastMessage = merged.lastOrNull()?.text ?: conv.lastMessage,
+                            timestamp = latestTime,
+                            updatedAt = now,
+                            deletedByUserIds = if (shouldRevive) emptyList() else conv.deletedByUserIds
                         )
                     } else conv
                 }
+                updated.sortedByDescending { it.updatedAt }
             }
-            onMessagesUpdated(liveMsgs)
+            onMessagesUpdated(currentMergedMessages)
             database?.let { db ->
                 scope.launch(Dispatchers.IO) {
                     for (msg in liveMsgs) {
@@ -479,9 +705,74 @@ object MarketplaceRepository {
         }
     }
 
+    // Delete single conversation thread from the current user's inbox
+    fun deleteConversation(conversationId: String) {
+        deleteConversations(listOf(conversationId))
+    }
+
+    // Bulk delete conversation threads from the current user's inbox
+    fun deleteConversations(conversationIds: List<String>) {
+        if (conversationIds.isEmpty()) return
+        val currentUserId = _currentUser.value.id
+        val idSet = conversationIds.toSet()
+
+        _conversations.update { list ->
+            list.map { conv ->
+                if (conv.id in idSet) {
+                    val updatedIds = (conv.deletedByUserIds + currentUserId).distinct()
+                    conv.copy(deletedByUserIds = updatedIds)
+                } else conv
+            }
+        }
+
+        database?.let { db ->
+            scope.launch(Dispatchers.IO) {
+                for (id in conversationIds) {
+                    val entity = db.chatDao().getConversationById(id)
+                    if (entity != null) {
+                        val currentList = entity.deletedByUserIds.split(",").filter { it.isNotBlank() }
+                        val updated = (currentList + currentUserId).distinct().joinToString(",")
+                        db.chatDao().updateDeletedByUserIds(id, updated)
+                    }
+                }
+            }
+        }
+
+        firestoreManager?.let { fs ->
+            scope.launch(Dispatchers.IO) {
+                for (id in conversationIds) {
+                    fs.markConversationDeletedForUser(id, currentUserId)
+                }
+            }
+        }
+    }
+
+    // Mark conversation read
+    fun markConversationAsRead(conversationId: String) {
+        val currentUserId = _currentUser.value.id
+        _conversations.update { list ->
+            list.map { conv ->
+                if (conv.id == conversationId) {
+                    conv.copy(unreadCount = 0)
+                } else conv
+            }
+        }
+        database?.let { db ->
+            scope.launch(Dispatchers.IO) {
+                db.chatDao().markConversationRead(conversationId)
+            }
+        }
+        firestoreManager?.let { fs ->
+            scope.launch(Dispatchers.IO) {
+                fs.markConversationRead(conversationId, currentUserId)
+            }
+        }
+    }
+
     // Start or get conversation for a book set
     fun startOrGetConversation(set: BookSet): String {
-        val currentUserId = _currentUser.value.id
+        val currentUser = _currentUser.value
+        val currentUserId = currentUser.id
         val sellerId = set.sellerId
 
         val existing = _conversations.value.find { conv ->
@@ -490,18 +781,38 @@ object MarketplaceRepository {
                 (conv.buyerId == sellerId && conv.sellerId == currentUserId)
             )
         }
-        if (existing != null) return existing.id
+        if (existing != null) {
+            // If user previously deleted this thread from inbox, automatically un-hide it
+            if (existing.deletedByUserIds.contains(currentUserId)) {
+                _conversations.update { list ->
+                    list.map { if (it.id == existing.id) it.copy(deletedByUserIds = it.deletedByUserIds - currentUserId) else it }
+                }
+                database?.let { db ->
+                    scope.launch(Dispatchers.IO) {
+                        db.chatDao().updateDeletedByUserIds(existing.id, "")
+                    }
+                }
+            }
+            return existing.id
+        }
 
         recordChatInquiry()
         val newId = "conv_" + UUID.randomUUID().toString().take(8)
         val initialMsg = ChatMessage(
             id = "msg_" + UUID.randomUUID().toString().take(8),
             senderId = currentUserId,
-            senderName = _currentUser.value.name,
+            senderName = currentUser.name,
             text = "Hello! Is the complete set '${set.title}' available?",
             timestamp = "Just now",
-            isMe = true
+            isMe = true,
+            senderAvatarUri = currentUser.profilePhotoUri,
+            senderAvatarRes = currentUser.profilePhotoRes
         )
+
+        val sellerUser = _allUsers.value.find { it.id == sellerId }
+        val buyerAvatarUri = currentUser.profilePhotoUri
+        val sellerAvatarUri = sellerUser?.profilePhotoUri
+
         val newConv = Conversation(
             id = newId,
             buyerId = currentUserId,
@@ -509,6 +820,13 @@ object MarketplaceRepository {
             otherUserName = set.sellerName,
             otherUserCollege = set.sellerCollege,
             otherUserAvatarRes = null,
+            otherUserAvatarUri = sellerAvatarUri,
+            buyerName = currentUser.name,
+            buyerCollege = currentUser.college,
+            buyerAvatarUri = buyerAvatarUri,
+            sellerName = set.sellerName,
+            sellerCollege = set.sellerCollege,
+            sellerAvatarUri = sellerAvatarUri,
             setId = set.id,
             setTitle = set.title,
             setPrice = set.totalPrice,
@@ -516,9 +834,10 @@ object MarketplaceRepository {
             timestamp = "Just now",
             unreadCount = 0,
             isOnline = true,
-            messages = listOf(initialMsg)
+            messages = listOf(initialMsg),
+            updatedAt = System.currentTimeMillis()
         )
-        _conversations.update { listOf(newConv) + it }
+        _conversations.update { (listOf(newConv) + it).sortedByDescending { c -> c.updatedAt } }
 
         database?.let { db ->
             scope.launch(Dispatchers.IO) {
@@ -698,6 +1017,7 @@ object MarketplaceRepository {
             currentSemester = sem
         )
         _currentUser.value = updated
+        _userProfileCache[updated.id] = updated
         _allUsers.update { list ->
             list.map { if (it.id == updated.id) updated else it }
         }
@@ -730,12 +1050,44 @@ object MarketplaceRepository {
     fun updateProfilePhotoUri(uri: String?) {
         val updated = _currentUser.value.copy(profilePhotoUri = uri)
         _currentUser.value = updated
+        _userProfileCache[updated.id] = updated
+        _allUsers.update { list ->
+            list.map { if (it.id == updated.id) updated else it }
+        }
 
         database?.let { db ->
             scope.launch(Dispatchers.IO) {
                 val currentEntity = db.userDao().getUserById(updated.id)
                 if (currentEntity != null) {
                     db.userDao().updateUser(currentEntity.copy(profilePhotoUri = uri))
+                }
+                try {
+                    firestoreManager?.saveUserProfile(updated)
+                } catch (e: Exception) {
+                    Log.w("MarketplaceRepo", "Failed to sync photo to Firestore: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun syncUserToRoom(user: UserProfile) {
+        database?.let { db ->
+            scope.launch(Dispatchers.IO) {
+                val currentEntity = db.userDao().getUserById(user.id)
+                if (currentEntity != null) {
+                    db.userDao().updateUser(
+                        currentEntity.copy(
+                            name = user.name,
+                            email = user.email,
+                            phone = user.phone,
+                            college = user.college,
+                            technologyId = user.technology.id,
+                            semesterId = user.currentSemester.id,
+                            profilePhotoUri = user.profilePhotoUri,
+                            role = user.role,
+                            accountStatus = user.accountStatus
+                        )
+                    )
                 }
             }
         }
@@ -820,8 +1172,8 @@ object MarketplaceRepository {
             val notif = AppNotification(
                 id = "notif_otp_" + System.currentTimeMillis(),
                 type = "SECURITY",
-                title = "Gmail ভেরিফিকেশন ওটিপি",
-                message = "আপনার অ্যাকাউন্ট যাচাইকরণ ওটিপি কোড: ${result.otpCode} (মেয়াদ ৫ মিনিট)।",
+                title = "Gmail Verification OTP",
+                message = "Your account verification OTP code is: ${result.otpCode} (valid for 5 minutes).",
                 timeAgo = "Just now"
             )
             addNotification(notif)
@@ -839,8 +1191,8 @@ object MarketplaceRepository {
             val notif = AppNotification(
                 id = "notif_otp_" + System.currentTimeMillis(),
                 type = "SECURITY",
-                title = "নতুন ওটিপি কোড পাঠানো হয়েছে",
-                message = "আপনার নতুন ওটিপি কোড: ${result.otpCode} (মেয়াদ ৫ মিনিট)।",
+                title = "New OTP Code Sent",
+                message = "Your new verification OTP code is: ${result.otpCode} (valid for 5 minutes).",
                 timeAgo = "Just now"
             )
             addNotification(notif)
@@ -852,7 +1204,7 @@ object MarketplaceRepository {
         val otpMgr = emailOtpManager ?: return AuthResult.Error("System initializing. Please try again.")
         val verifyResult = otpMgr.verifyOtp(enteredOtp)
         if (verifyResult.isFailure) {
-            return AuthResult.Error(verifyResult.exceptionOrNull()?.message ?: "ভুল ওটিপি কোড।")
+            return AuthResult.Error(verifyResult.exceptionOrNull()?.message ?: "Invalid OTP code.")
         }
 
         val pending = verifyResult.getOrThrow()
@@ -873,8 +1225,8 @@ object MarketplaceRepository {
             val welcomeNotif = AppNotification(
                 id = "notif_welcome_" + System.currentTimeMillis(),
                 type = "WELCOME",
-                title = "ইমেইল ভেরিফিকেশন সফল! 🎉",
-                message = "স্বাগতম ${pending.name}! আপনার জিমেইল অ্যাকাউন্ট সফলভাবে ভেরিফাই ও সক্রিয় করা হয়েছে।",
+                title = "Email Verification Successful! 🎉",
+                message = "Welcome ${pending.name}! Your Gmail account has been successfully verified and activated.",
                 timeAgo = "Just now"
             )
             addNotification(welcomeNotif)
@@ -1280,7 +1632,7 @@ object MarketplaceRepository {
         )
     }
 
-    private fun ConversationEntity.toDomain(messages: List<ChatMessageEntity>): Conversation {
+    private fun ConversationEntity.toDomain(messages: List<ChatMessageEntity>, currentUserId: String = ""): Conversation {
         return Conversation(
             id = id,
             buyerId = buyerId,
@@ -1288,6 +1640,13 @@ object MarketplaceRepository {
             otherUserName = otherUserName,
             otherUserCollege = otherUserCollege,
             otherUserAvatarRes = otherUserAvatarRes,
+            otherUserAvatarUri = otherUserAvatarUri,
+            buyerName = buyerName,
+            buyerCollege = buyerCollege,
+            buyerAvatarUri = buyerAvatarUri,
+            sellerName = sellerName,
+            sellerCollege = sellerCollege,
+            sellerAvatarUri = sellerAvatarUri,
             setId = setId,
             setTitle = setTitle,
             setPrice = setPrice,
@@ -1295,7 +1654,8 @@ object MarketplaceRepository {
             timestamp = timestamp,
             unreadCount = unreadCount,
             isOnline = isOnline,
-            messages = messages.filter { it.conversationId == id }.map { it.toDomain() }
+            messages = messages.filter { it.conversationId == id }.map { it.toDomain(currentUserId) },
+            deletedByUserIds = deletedByUserIds.split(",").filter { it.isNotBlank() }
         )
     }
 
@@ -1307,24 +1667,34 @@ object MarketplaceRepository {
             otherUserName = otherUserName,
             otherUserCollege = otherUserCollege,
             otherUserAvatarRes = otherUserAvatarRes,
+            otherUserAvatarUri = otherUserAvatarUri,
+            buyerName = buyerName,
+            buyerCollege = buyerCollege,
+            buyerAvatarUri = buyerAvatarUri,
+            sellerName = sellerName,
+            sellerCollege = sellerCollege,
+            sellerAvatarUri = sellerAvatarUri,
             setId = setId,
             setTitle = setTitle,
             setPrice = setPrice,
             lastMessage = lastMessage,
             timestamp = timestamp,
             unreadCount = unreadCount,
-            isOnline = isOnline
+            isOnline = isOnline,
+            deletedByUserIds = deletedByUserIds.joinToString(",")
         )
     }
 
-    private fun ChatMessageEntity.toDomain(): ChatMessage {
+    private fun ChatMessageEntity.toDomain(currentUserId: String = ""): ChatMessage {
         return ChatMessage(
             id = id,
             senderId = senderId,
             senderName = senderName,
             text = text,
             timestamp = timestamp,
-            isMe = isMe
+            isMe = if (currentUserId.isNotBlank()) senderId == currentUserId else isMe,
+            senderAvatarUri = senderAvatarUri,
+            senderAvatarRes = senderAvatarRes
         )
     }
 
@@ -1336,7 +1706,9 @@ object MarketplaceRepository {
             senderName = senderName,
             text = text,
             timestamp = timestamp,
-            isMe = isMe
+            isMe = isMe,
+            senderAvatarUri = senderAvatarUri,
+            senderAvatarRes = senderAvatarRes
         )
     }
 

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Person
@@ -43,6 +44,7 @@ import com.example.data.MarketplaceRepository
 import com.example.model.*
 import com.example.ui.components.*
 import com.example.ui.theme.*
+import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,23 +57,97 @@ fun ChatScreen(
     val context = LocalContext.current
     val conversations by MarketplaceRepository.conversations.collectAsState()
     val bookSets by MarketplaceRepository.bookSets.collectAsState()
+    val currentUser by MarketplaceRepository.currentUser.collectAsState()
+    val allUsers by MarketplaceRepository.allUsers.collectAsState()
 
     val conversation = conversations.find { it.id == conversationId }
     val referencedSet = bookSets.find { it.id == conversation?.setId }
 
+    val otherUserId = conversation?.getOtherUserId(currentUser.id) ?: ""
+
+    // Dynamically resolve other user's profile from cache, allUsers, and repository
+    var otherUserProfile by remember(otherUserId) {
+        mutableStateOf(
+            MarketplaceRepository.getCachedUserProfile(otherUserId)
+                ?: allUsers.find { it.id == otherUserId }
+        )
+    }
+
+    LaunchedEffect(otherUserId, allUsers) {
+        if (otherUserId.isNotBlank()) {
+            val cached = MarketplaceRepository.getCachedUserProfile(otherUserId)
+                ?: allUsers.find { it.id == otherUserId }
+            if (cached != null) {
+                otherUserProfile = cached
+            }
+            val remote = MarketplaceRepository.getUserProfileAsync(otherUserId)
+            if (remote != null) {
+                otherUserProfile = remote
+            }
+        }
+    }
+
+    val matchedOtherUser = otherUserProfile ?: allUsers.find { it.id == otherUserId }
+    val otherUserName = otherUserProfile?.name?.takeIf { it.isNotBlank() }
+        ?: matchedOtherUser?.name
+        ?: conversation?.getEffectiveOtherUserName(currentUser.id)
+        ?.takeIf { it.isNotBlank() }
+        ?: "Student"
+    val otherUserCollege = otherUserProfile?.college?.takeIf { it.isNotBlank() }
+        ?: matchedOtherUser?.college
+        ?: conversation?.getEffectiveOtherUserCollege(currentUser.id)
+        ?: ""
+    val otherUserAvatarUri = otherUserProfile?.profilePhotoUri
+        ?: matchedOtherUser?.profilePhotoUri
+        ?: conversation?.getEffectiveOtherUserAvatarUri(currentUser.id)
+    val otherUserAvatarRes = otherUserProfile?.profilePhotoRes
+        ?: matchedOtherUser?.profilePhotoRes
+        ?: conversation?.otherUserAvatarRes
+
+    // Resolve real phone number directly from other participant's profile
+    val otherUserPhone = otherUserProfile?.phone?.trim()?.takeIf { it.isNotBlank() }
+        ?: matchedOtherUser?.phone?.trim()?.takeIf { it.isNotBlank() }
+        ?: (if (conversation?.sellerId == otherUserId) referencedSet?.sellerPhone?.trim()?.takeIf { it.isNotBlank() } else null)
+        ?: ""
+
     var inputMessage by remember { mutableStateOf("") }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var showMenuDropdown by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    // Keep local list of messages to ensure zero temporary disappearance during sending/syncing
+    val initialMsgs = remember(conversationId) { conversation?.messages ?: emptyList() }
+    var localMessages by remember(conversationId) { mutableStateOf(initialMsgs) }
+
+    LaunchedEffect(conversationId) {
+        MarketplaceRepository.markConversationAsRead(conversationId)
+    }
+
+    LaunchedEffect(conversation?.messages) {
+        val currentList = conversation?.messages ?: emptyList()
+        if (currentList.isNotEmpty()) {
+            val liveIds = currentList.map { it.id }.toSet()
+            val pending = localMessages.filter { it.id !in liveIds }
+            localMessages = (currentList + pending)
+        }
+    }
 
     // Real-time snapshot listener lifecycle for chat messages
     DisposableEffect(conversationId) {
-        val registration = MarketplaceRepository.listenMessages(conversationId)
+        val registration = MarketplaceRepository.listenMessages(conversationId) { liveMsgs ->
+            if (liveMsgs.isNotEmpty()) {
+                val liveIds = liveMsgs.map { it.id }.toSet()
+                val pending = localMessages.filter { it.id !in liveIds }
+                localMessages = (liveMsgs + pending)
+            }
+        }
         onDispose {
             registration?.remove()
         }
     }
 
-    LaunchedEffect(conversation?.messages?.size) {
-        val count = conversation?.messages?.size ?: 0
+    LaunchedEffect(localMessages.size) {
+        val count = localMessages.size
         if (count > 0) {
             val totalItems = count + if (referencedSet != null) 1 else 0
             listState.animateScrollToItem(totalItems - 1)
@@ -114,17 +190,24 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // Avatar with online status (blank by default if no photo)
+                    // Avatar with online status
                     Box {
                         Surface(
                             modifier = Modifier.size(42.dp),
                             shape = CircleShape,
                             color = Color(0xFFE2E8F0)
                         ) {
-                            if (conversation.otherUserAvatarRes != null) {
+                            if (!otherUserAvatarUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = otherUserAvatarUri,
+                                    contentDescription = otherUserName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else if (otherUserAvatarRes != null) {
                                 Image(
-                                    painter = painterResource(id = conversation.otherUserAvatarRes),
-                                    contentDescription = conversation.otherUserName,
+                                    painter = painterResource(id = otherUserAvatarRes),
+                                    contentDescription = otherUserName,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -155,13 +238,14 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // User name & Online state
+                    // User name & College/Online state
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = conversation.otherUserName,
+                            text = otherUserName,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            maxLines = 1
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -172,10 +256,11 @@ fun ChatScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Online",
-                                fontSize = 12.sp,
+                                text = if (otherUserCollege.isNotBlank()) "$otherUserCollege • Online" else "Online",
+                                fontSize = 11.sp,
                                 color = Color(0xFF10B981),
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1
                             )
                         }
                     }
@@ -183,11 +268,28 @@ fun ChatScreen(
                     // Phone Call
                     GlassIconButton(
                         onClick = {
-                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:01711223344"))
-                            context.startActivity(intent)
+                            if (otherUserPhone.isNotBlank()) {
+                                val cleanPhone = otherUserPhone.filter { it.isDigit() || it == '+' }
+                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanPhone"))
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Could not open dialer: ${e.message}",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "No phone number available in ${otherUserName}'s profile.",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         },
                         icon = Icons.Outlined.Phone,
-                        contentDescription = "Call",
+                        contentDescription = "Call $otherUserName",
                         tone = GlassIconTone.CYAN,
                         size = 40.dp,
                         testTag = "chat_call_button"
@@ -195,15 +297,50 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Menu
-                    GlassIconButton(
-                        onClick = {},
-                        icon = Icons.Outlined.MoreVert,
-                        contentDescription = "More",
-                        tone = GlassIconTone.FROSTED_WHITE,
-                        size = 40.dp,
-                        testTag = "chat_more_button"
-                    )
+                    // Three-dot options menu with Delete
+                    Box {
+                        GlassIconButton(
+                            onClick = { showMenuDropdown = true },
+                            icon = Icons.Outlined.MoreVert,
+                            contentDescription = "More options",
+                            tone = GlassIconTone.FROSTED_WHITE,
+                            size = 40.dp,
+                            testTag = "chat_more_button"
+                        )
+
+                        DropdownMenu(
+                            expanded = showMenuDropdown,
+                            onDismissRequest = { showMenuDropdown = false },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .background(Color.White)
+                                .testTag("chat_options_menu")
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Delete",
+                                        color = Color(0xFFEF4444),
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 14.sp
+                                    )
+                                },
+                                onClick = {
+                                    showMenuDropdown = false
+                                    showDeleteConfirmDialog = true
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Delete,
+                                        contentDescription = "Delete",
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.testTag("chat_menu_delete_option")
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -237,7 +374,8 @@ fun ChatScreen(
                                 text = suggestion,
                                 selected = false,
                                 onClick = {
-                                    MarketplaceRepository.sendMessage(conversationId, suggestion)
+                                    val sentMsg = MarketplaceRepository.sendMessage(conversationId, suggestion)
+                                    localMessages = (localMessages + sentMsg).distinctBy { it.id }
                                 }
                             )
                         }
@@ -288,8 +426,10 @@ fun ChatScreen(
                                 keyboardActions = KeyboardActions(
                                     onSend = {
                                         if (inputMessage.isNotBlank()) {
-                                            MarketplaceRepository.sendMessage(conversationId, inputMessage.trim())
+                                            val textToSend = inputMessage.trim()
                                             inputMessage = ""
+                                            val sentMsg = MarketplaceRepository.sendMessage(conversationId, textToSend)
+                                            localMessages = (localMessages + sentMsg).distinctBy { it.id }
                                         }
                                     }
                                 ),
@@ -319,8 +459,10 @@ fun ChatScreen(
                     GlassIconButton(
                         onClick = {
                             if (inputMessage.isNotBlank()) {
-                                MarketplaceRepository.sendMessage(conversationId, inputMessage.trim())
+                                val textToSend = inputMessage.trim()
                                 inputMessage = ""
+                                val sentMsg = MarketplaceRepository.sendMessage(conversationId, textToSend)
+                                localMessages = (localMessages + sentMsg).distinctBy { it.id }
                             }
                         },
                         icon = Icons.AutoMirrored.Filled.Send,
@@ -385,15 +527,80 @@ fun ChatScreen(
             }
 
             // Chat Messages list
-            items(conversation.messages, key = { it.id }, contentType = { "chat_msg" }) { msg ->
-                ChatBubble(message = msg)
+            items(localMessages, key = { it.id }, contentType = { "chat_msg" }) { msg ->
+                ChatBubble(
+                    message = msg,
+                    allUsers = allUsers,
+                    counterpartyName = otherUserName,
+                    counterpartyAvatarUri = otherUserAvatarUri,
+                    counterpartyAvatarRes = otherUserAvatarRes
+                )
             }
         }
+    }
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = {
+                Text(
+                    text = "Delete Chat",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete this chat thread from your inbox? If you or $otherUserName send a new message in the future, the thread will reappear in your inbox automatically.",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        MarketplaceRepository.deleteConversation(conversationId)
+                        android.widget.Toast.makeText(context, "Chat deleted from inbox", android.widget.Toast.LENGTH_SHORT).show()
+                        onNavigateBack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    modifier = Modifier.testTag("dialog_confirm_delete_chat")
+                ) {
+                    Text("Delete", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirmDialog = false },
+                    modifier = Modifier.testTag("dialog_cancel_delete_chat")
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White
+        )
     }
 }
 
 @Composable
-private fun ChatBubble(message: ChatMessage) {
+private fun ChatBubble(
+    message: ChatMessage,
+    allUsers: List<UserProfile>,
+    counterpartyName: String,
+    counterpartyAvatarUri: String?,
+    counterpartyAvatarRes: Int?
+) {
+    // Single Source of Truth: Asynchronously fetch the sender's profile using message.senderId
+    // before rendering the message bubble, ensuring accurate user name and avatar display.
+    val senderProfile by produceState<UserProfile?>(
+        initialValue = MarketplaceRepository.getCachedUserProfile(message.senderId),
+        key1 = message.senderId
+    ) {
+        value = MarketplaceRepository.getUserProfileAsync(message.senderId)
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isMe) Alignment.End else Alignment.Start
@@ -448,36 +655,117 @@ private fun ChatBubble(message: ChatMessage) {
                 }
             }
         } else {
-            // Incoming Received message (soft white neumorphic card)
-            Surface(
-                modifier = Modifier
-                    .widthIn(max = 280.dp)
-                    .shadow(
-                        elevation = 3.dp,
-                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp),
-                        ambientColor = SoftShadowColor
-                    ),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, Color(0xFFF1F5F9))
+            // Incoming Received message with asynchronously resolved sender profile (single source of truth)
+            val resolvedSenderName = senderProfile?.name
+                ?: message.senderName.takeIf { it.isNotBlank() }
+                ?: counterpartyName.takeIf { it.isNotBlank() }
+                ?: "Student"
+
+            val resolvedAvatarUri = senderProfile?.profilePhotoUri
+                ?: message.senderAvatarUri
+                ?: counterpartyAvatarUri
+
+            val resolvedAvatarRes = senderProfile?.profilePhotoRes
+                ?: message.senderAvatarRes
+                ?: counterpartyAvatarRes
+
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.Start
             ) {
-                Text(
-                    text = message.text,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                )
+                Surface(
+                    modifier = Modifier.size(32.dp),
+                    shape = CircleShape,
+                    color = Color(0xFFE2E8F0)
+                ) {
+                    if (!resolvedAvatarUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = resolvedAvatarUri,
+                            contentDescription = resolvedSenderName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (resolvedAvatarRes != null) {
+                        Image(
+                            painter = painterResource(id = resolvedAvatarRes),
+                            contentDescription = resolvedSenderName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = null,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column {
+                    Text(
+                        text = resolvedSenderName,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = PrimaryPurple,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .widthIn(max = 260.dp)
+                            .shadow(
+                                elevation = 3.dp,
+                                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp),
+                                ambientColor = SoftShadowColor
+                            ),
+                        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFF1F5F9))
+                    ) {
+                        Text(
+                            text = message.text,
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        Text(
-            text = message.timestamp,
-            fontSize = 11.sp,
-            color = TextMuted,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 4.dp)
-        )
+        ) {
+            Text(
+                text = message.timestamp,
+                fontSize = 11.sp,
+                color = TextMuted
+            )
+            if (message.isMe) {
+                Spacer(modifier = Modifier.width(4.dp))
+                if (message.isPending) {
+                    Text(
+                        text = "• sending...",
+                        fontSize = 10.sp,
+                        color = TextMuted
+                    )
+                } else {
+                    Text(
+                        text = "• sent",
+                        fontSize = 10.sp,
+                        color = Color(0xFF10B981)
+                    )
+                }
+            }
+        }
     }
 }

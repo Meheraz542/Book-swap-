@@ -2,7 +2,7 @@
 <resources>
 
     <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar">
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_bookswipe_logo</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_bookswap_logo</item>
         <item name="android:windowSplashScreenBackground">#120B13</item>
     </style>
 </resources>
