@@ -358,7 +358,11 @@ class FirebaseFirestoreManager(private val context: Context) {
         }
     }
 
-    fun listenConversations(userId: String, onConversationsUpdated: (List<Conversation>) -> Unit): ListenerRegistration? {
+    fun listenConversations(
+        userId: String,
+        onConversationsUpdated: (List<Conversation>) -> Unit,
+        onNewMessageAlert: ((InAppMessageAlert) -> Unit)? = null
+    ): ListenerRegistration? {
         if (userId.isBlank()) {
             return null
         }
@@ -370,12 +374,62 @@ class FirebaseFirestoreManager(private val context: Context) {
             firestore.collection("conversations").whereArrayContains("participantUids", userId)
         }
 
+        var isInitialLoad = true
+
         return query.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (error != null) {
                 Log.e(tag, "Error listening to conversations", error)
                 return@addSnapshotListener
             }
             if (snapshot != null) {
+                // Real-time alert detection for new incoming messages from other participants
+                if (!isInitialLoad) {
+                    for (change in snapshot.documentChanges) {
+                        if (change.type == DocumentChange.Type.MODIFIED || change.type == DocumentChange.Type.ADDED) {
+                            val doc = change.document
+                            val lastSenderId = doc.getString("lastSenderId") ?: ""
+                            val lastMessage = doc.getString("lastMessage") ?: ""
+                            val hasPendingWrites = doc.metadata.hasPendingWrites()
+                            val isFromMe = lastSenderId == userId || lastSenderId.isBlank()
+
+                            if (!hasPendingWrites && !isFromMe && lastMessage.isNotBlank()) {
+                                val convId = doc.getString("id") ?: doc.id
+                                val buyerId = doc.getString("buyerId") ?: ""
+                                val sellerId = doc.getString("sellerId") ?: ""
+                                val buyerName = doc.getString("buyerName") ?: ""
+                                val sellerName = doc.getString("sellerName") ?: ""
+                                val buyerAvatarUri = doc.getString("buyerAvatarUri")?.takeIf { it.isNotBlank() }
+                                val sellerAvatarUri = doc.getString("sellerAvatarUri")?.takeIf { it.isNotBlank() }
+                                val buyerCollege = doc.getString("buyerCollege") ?: ""
+                                val sellerCollege = doc.getString("sellerCollege") ?: ""
+
+                                val senderName = doc.getString("lastSenderName")
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: (if (lastSenderId == buyerId) buyerName else sellerName).ifBlank { "Student" }
+
+                                val senderAvatarUri = doc.getString("lastSenderAvatarUri")
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: (if (lastSenderId == buyerId) buyerAvatarUri else sellerAvatarUri)
+
+                                val senderCollege = if (lastSenderId == buyerId) buyerCollege else sellerCollege
+
+                                val alert = InAppMessageAlert(
+                                    conversationId = convId,
+                                    senderId = lastSenderId,
+                                    senderName = senderName,
+                                    senderAvatarUri = senderAvatarUri,
+                                    senderCollege = senderCollege,
+                                    messageText = lastMessage,
+                                    timestamp = doc.getString("timestamp") ?: "Just now"
+                                )
+                                Log.d(tag, "🔔 Real-time incoming message alert detected from $senderName in $convId: '$lastMessage'")
+                                onNewMessageAlert?.invoke(alert)
+                            }
+                        }
+                    }
+                }
+                isInitialLoad = false
+
                 val list = snapshot.documents.mapNotNull { doc ->
                     val id = doc.getString("id") ?: doc.id
                     val buyerId = doc.getString("buyerId") ?: ""
@@ -481,6 +535,8 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "lastMessage" to message.text,
                 "timestamp" to message.timestamp,
                 "lastSenderId" to message.senderId,
+                "lastSenderName" to message.senderName,
+                "lastSenderAvatarUri" to (message.senderAvatarUri ?: ""),
                 "deletedByUserIds" to emptyList<String>(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )

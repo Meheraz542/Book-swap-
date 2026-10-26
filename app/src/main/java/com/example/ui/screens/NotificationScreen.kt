@@ -32,6 +32,7 @@ import com.example.ui.theme.*
 fun NotificationScreen(
     onNavigateBack: () -> Unit,
     onNavigateToSetDetails: (String) -> Unit,
+    onNavigateToChat: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val notifications by MarketplaceRepository.notifications.collectAsState()
@@ -107,7 +108,9 @@ fun NotificationScreen(
                         notif = notif,
                         onClick = {
                             MarketplaceRepository.markNotificationRead(notif.id)
-                            if (notif.relatedSetId != null) {
+                            if (notif.relatedConversationId != null) {
+                                onNavigateToChat(notif.relatedConversationId)
+                            } else if (notif.relatedSetId != null) {
                                 onNavigateToSetDetails(notif.relatedSetId)
                             }
                         }
@@ -132,17 +135,31 @@ private fun NotificationCard(
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(if (notif.isRead) Color.Transparent else PrimaryPurple)
-                    .padding(top = 4.dp)
-            )
-
-            Spacer(modifier = Modifier.width(10.dp))
+            if (!notif.senderAvatarUri.isNullOrBlank()) {
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape = CircleShape,
+                    color = Color(0xFFE2E8F0)
+                ) {
+                    coil.compose.AsyncImage(
+                        model = notif.senderAvatarUri,
+                        contentDescription = "Avatar",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(if (notif.isRead) Color.Transparent else PrimaryPurple)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(

@@ -134,6 +134,7 @@ fun ChatScreen(
 
     // Real-time snapshot listener lifecycle for chat messages
     DisposableEffect(conversationId) {
+        MarketplaceRepository.setActiveChatConversationId(conversationId)
         val registration = MarketplaceRepository.listenMessages(conversationId) { liveMsgs ->
             if (liveMsgs.isNotEmpty()) {
                 val liveIds = liveMsgs.map { it.id }.toSet()
@@ -142,6 +143,7 @@ fun ChatScreen(
             }
         }
         onDispose {
+            MarketplaceRepository.setActiveChatConversationId(null)
             registration?.remove()
         }
     }

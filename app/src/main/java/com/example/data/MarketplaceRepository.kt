@@ -99,6 +99,26 @@ object MarketplaceRepository {
     private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
     val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
 
+    // Real-Time In-App Visual Alert Banner
+    private val _activeInAppAlert = MutableStateFlow<InAppMessageAlert?>(null)
+    val activeInAppAlert: StateFlow<InAppMessageAlert?> = _activeInAppAlert.asStateFlow()
+
+    fun triggerInAppAlert(alert: InAppMessageAlert) {
+        _activeInAppAlert.value = alert
+    }
+
+    fun dismissInAppAlert() {
+        _activeInAppAlert.value = null
+    }
+
+    // Currently focused chat conversation ID to prevent redundant alerts when actively viewing chat
+    private val _activeChatConversationId = MutableStateFlow<String?>(null)
+    val activeChatConversationId: StateFlow<String?> = _activeChatConversationId.asStateFlow()
+
+    fun setActiveChatConversationId(id: String?) {
+        _activeChatConversationId.value = id
+    }
+
     // All Registered Users for Admin panel
     private val _allUsers = MutableStateFlow<List<UserProfile>>(emptyList())
     val allUsers: StateFlow<List<UserProfile>> = _allUsers.asStateFlow()
@@ -328,33 +348,70 @@ object MarketplaceRepository {
                                 Log.d("MarketplaceRepo", "Real-time user profile updated: ${updatedProfile.name}")
                             }
                         }
-                        conversationsReg = firestore.listenConversations(user.id) { firestoreConvs ->
-                            _conversations.update { currentList ->
-                                val currentMap = currentList.associateBy { it.id }
-                                val remoteIds = firestoreConvs.map { it.id }.toSet()
-                                val mergedRemote = firestoreConvs.map { remoteConv ->
-                                    val existing = currentMap[remoteConv.id]
-                                    val preservedMessages = if (remoteConv.messages.isNotEmpty()) {
-                                        val remoteMsgIds = remoteConv.messages.map { it.id }.toSet()
-                                        val pendingLocal = (existing?.messages ?: emptyList()).filter { it.id !in remoteMsgIds }
-                                        (remoteConv.messages + pendingLocal)
-                                    } else {
-                                        existing?.messages ?: emptyList()
+                        conversationsReg = firestore.listenConversations(
+                            userId = user.id,
+                            onConversationsUpdated = { firestoreConvs ->
+                                _conversations.update { currentList ->
+                                    val currentMap = currentList.associateBy { it.id }
+                                    val remoteIds = firestoreConvs.map { it.id }.toSet()
+                                    val mergedRemote = firestoreConvs.map { remoteConv ->
+                                        val existing = currentMap[remoteConv.id]
+                                        val preservedMessages = if (remoteConv.messages.isNotEmpty()) {
+                                            val remoteMsgIds = remoteConv.messages.map { it.id }.toSet()
+                                            val pendingLocal = (existing?.messages ?: emptyList()).filter { it.id !in remoteMsgIds }
+                                            (remoteConv.messages + pendingLocal)
+                                        } else {
+                                            existing?.messages ?: emptyList()
+                                        }
+                                        remoteConv.copy(messages = preservedMessages)
                                     }
-                                    remoteConv.copy(messages = preservedMessages)
+                                    val localOnlyConvs = currentList.filter { it.id !in remoteIds }
+                                    (mergedRemote + localOnlyConvs).sortedByDescending { it.updatedAt }
                                 }
-                                val localOnlyConvs = currentList.filter { it.id !in remoteIds }
-                                (mergedRemote + localOnlyConvs).sortedByDescending { it.updatedAt }
-                            }
-                            val updatedConvs = _conversations.value
-                            database?.let { db ->
-                                scope.launch(Dispatchers.IO) {
-                                    for (conv in updatedConvs) {
-                                        db.chatDao().insertConversation(conv.toEntity())
+                                val updatedConvs = _conversations.value
+                                database?.let { db ->
+                                    scope.launch(Dispatchers.IO) {
+                                        for (conv in updatedConvs) {
+                                            db.chatDao().insertConversation(conv.toEntity())
+                                        }
                                     }
                                 }
+                            },
+                            onNewMessageAlert = { rawAlert ->
+                                // Trigger in-app visual alert only if the recipient is NOT currently inside this exact conversation
+                                if (_activeChatConversationId.value != rawAlert.conversationId) {
+                                    scope.launch {
+                                        val senderProfile = getUserProfileAsync(rawAlert.senderId)
+                                        val resolvedAlert = if (senderProfile != null) {
+                                            rawAlert.copy(
+                                                senderName = senderProfile.name.ifBlank { rawAlert.senderName },
+                                                senderAvatarUri = senderProfile.profilePhotoUri ?: rawAlert.senderAvatarUri,
+                                                senderCollege = senderProfile.college.ifBlank { rawAlert.senderCollege }
+                                            )
+                                        } else {
+                                            rawAlert
+                                        }
+                                        _activeInAppAlert.value = resolvedAlert
+
+                                        // Persist as notification in Notifications screen
+                                        val notif = AppNotification(
+                                            id = UUID.randomUUID().toString(),
+                                            type = "CHAT_MESSAGE",
+                                            title = "New message from ${resolvedAlert.senderName}",
+                                            message = resolvedAlert.messageText,
+                                            timeAgo = "Just now",
+                                            isRead = false,
+                                            relatedConversationId = resolvedAlert.conversationId,
+                                            senderAvatarUri = resolvedAlert.senderAvatarUri
+                                        )
+                                        addNotification(notif)
+                                        Log.d("MarketplaceRepo", "Pushed in-app alert & notification for message from ${resolvedAlert.senderName}")
+                                    }
+                                } else {
+                                    Log.d("MarketplaceRepo", "Suppressed in-app notification banner for active conversation ${rawAlert.conversationId}")
+                                }
                             }
-                        }
+                        )
                     }
                 }
             }

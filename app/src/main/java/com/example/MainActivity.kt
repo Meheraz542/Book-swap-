@@ -39,6 +39,7 @@ import com.example.model.Semester
 import com.example.model.Technology
 import com.example.ui.components.BottomNavTab
 import com.example.ui.components.FloatingBottomNavBar
+import com.example.ui.components.InAppNotificationBanner
 import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
@@ -190,6 +191,7 @@ private fun MainAppContent(
     val conversations by MarketplaceRepository.conversations.collectAsState()
     val bookSets by MarketplaceRepository.bookSets.collectAsState()
     val notifications by MarketplaceRepository.notifications.collectAsState()
+    val activeInAppAlert by MarketplaceRepository.activeInAppAlert.collectAsState()
 
     val totalUnreadInbox = remember(conversations) {
         conversations.sumOf { it.unreadCount }
@@ -390,11 +392,26 @@ private fun MainAppContent(
                             if (set != null) {
                                 currentDestination = AppDestination.SetDetails(set)
                             }
+                        },
+                        onNavigateToChat = { convId ->
+                            currentDestination = AppDestination.Chat(convId)
                         }
                     )
                 }
             }
         }
+
+        // Real-Time In-App Visual Alert Banner for incoming chat messages
+        InAppNotificationBanner(
+            alert = activeInAppAlert,
+            onOpenChat = { convId ->
+                currentDestination = AppDestination.Chat(convId)
+            },
+            onDismiss = {
+                MarketplaceRepository.dismissInAppAlert()
+            },
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
 
         // Floating Neumorphic Bottom Navigation Bar with Spring Enter/Exit Animation
         AnimatedVisibility(

@@ -191,7 +191,20 @@ data class AppNotification(
     val timeAgo: String,
     val isRead: Boolean = false,
     val relatedSetId: String? = null,
-    val relatedDealId: String? = null
+    val relatedDealId: String? = null,
+    val relatedConversationId: String? = null,
+    val senderAvatarUri: String? = null
+)
+
+data class InAppMessageAlert(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val conversationId: String,
+    val senderId: String,
+    val senderName: String,
+    val senderAvatarUri: String? = null,
+    val senderCollege: String = "",
+    val messageText: String,
+    val timestamp: String = "Just now"
 )
 
 data class AppTrafficStats(
