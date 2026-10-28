@@ -65,6 +65,12 @@ fun SetDetailsScreen(
 ) {
     val context = LocalContext.current
     val currentUser by MarketplaceRepository.currentUser.collectAsState()
+    val allUsers by MarketplaceRepository.allUsers.collectAsState()
+    val sellerUser = (if (currentUser.id == bookSet.sellerId) currentUser else null)
+        ?: allUsers.find { it.id == bookSet.sellerId }
+        ?: MarketplaceRepository.getCachedUserProfile(bookSet.sellerId)
+    val sellerAvatarUri = sellerUser?.profilePhotoUri
+    val sellerAvatarRes = sellerUser?.profilePhotoRes
     val isOwner = currentUser.id == bookSet.sellerId
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -628,19 +634,37 @@ fun SetDetailsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Seller Avatar - blank default avatar so no picture is displayed
+                        // Seller Avatar with real-time dynamic propagation
                         Surface(
-                            modifier = Modifier.size(54.dp),
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape),
                             shape = CircleShape,
                             color = Color(0xFFE2E8F0)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Person,
-                                    contentDescription = "No avatar displayed",
-                                    tint = Color(0xFF94A3B8),
-                                    modifier = Modifier.size(30.dp)
+                            if (!sellerAvatarUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = sellerAvatarUri,
+                                    contentDescription = "Seller Profile Picture",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
                                 )
+                            } else if (sellerAvatarRes != null) {
+                                Image(
+                                    painter = painterResource(id = sellerAvatarRes),
+                                    contentDescription = "Seller Profile Picture",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Person,
+                                        contentDescription = "Seller Avatar",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -806,138 +830,6 @@ fun SetDetailsScreen(
     }
 }
 
-/**
- * Animated Confirmation Dialog with a bouncy 'Pop' entrance effect.
- */
-@Composable
-private fun PopAnimatedConfirmationDialog(
-    isOpen: Boolean,
-    onDismissRequest: () -> Unit,
-    onConfirm: () -> Unit,
-    title: String,
-    description: String,
-    confirmButtonText: String,
-    confirmButtonColor: Color,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconColor: Color,
-    testTagConfirm: String
-) {
-    if (isOpen) {
-        Dialog(
-            onDismissRequest = onDismissRequest,
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            var animateIn by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) {
-                animateIn = true
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onDismissRequest() },
-                contentAlignment = Alignment.Center
-            ) {
-                AnimatedVisibility(
-                    visible = animateIn,
-                    enter = scaleIn(
-                        initialScale = 0.55f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    ) + fadeIn(animationSpec = tween(180)),
-                    exit = scaleOut(targetScale = 0.8f) + fadeOut(animationSpec = tween(120))
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White,
-                        shadowElevation = 24.dp,
-                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                        modifier = Modifier
-                            .fillMaxWidth(0.88f)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {} // Prevent dismiss on modal card click
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = iconColor.copy(alpha = 0.12f),
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = iconColor,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = title,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = description,
-                                fontSize = 13.5.sp,
-                                color = TextSecondary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                lineHeight = 19.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(22.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                FrostedGlassButton(
-                                    text = "Cancel",
-                                    onClick = onDismissRequest,
-                                    textColor = TextSecondary,
-                                    modifier = Modifier.weight(1f),
-                                    height = 44.dp,
-                                    testTag = "btn_popup_cancel"
-                                )
-
-                                GlassButton(
-                                    text = confirmButtonText,
-                                    onClick = onConfirm,
-                                    gradient = Brush.horizontalGradient(
-                                        listOf(confirmButtonColor, confirmButtonColor.copy(alpha = 0.85f))
-                                    ),
-                                    modifier = Modifier.weight(1.3f),
-                                    height = 44.dp,
-                                    testTag = testTagConfirm
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun DetailBadge(text: String) {

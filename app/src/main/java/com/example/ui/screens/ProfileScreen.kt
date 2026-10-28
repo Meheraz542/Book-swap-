@@ -85,15 +85,56 @@ fun ProfileScreen(
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var isUploadingPhoto by remember { mutableStateOf(false) }
 
-    // User original photo picker with persistent local storage
+    // Media Photo Picker with local compression and Firebase Storage upload
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            coroutineScope.launch {
-                val persistentUri = ImageStorageManager.saveAvatarLocally(context, uri)
-                MarketplaceRepository.updateProfilePhotoUri(persistentUri)
+            isUploadingPhoto = true
+            MarketplaceRepository.uploadAndSyncProfilePhoto(context, uri) {
+                isUploadingPhoto = false
+            }
+        }
+    }
+
+    // Lazy context-aware permission launcher - strictly on-demand
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    // Context-aware trigger: only invoked on user explicit interaction
+    val requestPhotoUpload: () -> Unit = {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_MEDIA_IMAGES
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (hasPermission) {
+                photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            } else {
+                permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_IMAGES)
+            }
+        } else {
+            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (hasPermission) {
+                photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            } else {
+                permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
             }
         }
     }
@@ -137,17 +178,13 @@ fun ProfileScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Avatar with camera badge
-                        Box {
+                        Box(contentAlignment = Alignment.Center) {
                             Surface(
                                 modifier = Modifier
                                     .size(94.dp)
                                     .shadow(elevation = 6.dp, shape = CircleShape, ambientColor = SoftShadowColor)
                                     .clip(CircleShape)
-                                    .clickable {
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    }
+                                    .clickable { requestPhotoUpload() }
                                     .testTag("profile_avatar_image"),
                                 shape = CircleShape,
                                 color = PrimaryPurpleLight
@@ -184,17 +221,29 @@ fun ProfileScreen(
                                 }
                             }
 
+                            if (isUploadingPhoto) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(94.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.5f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(32.dp),
+                                        color = Color.White,
+                                        strokeWidth = 3.dp
+                                    )
+                                }
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .size(32.dp)
                                     .clip(CircleShape)
                                     .background(PrimaryPurple)
-                                    .clickable {
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    }
+                                    .clickable { requestPhotoUpload() }
                                     .testTag("btn_upload_profile_photo"),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -635,51 +684,23 @@ fun ProfileScreen(
         }
     }
 
-    // Logout Confirmation Dialog
-    if (showLogoutConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutConfirmDialog = false },
-            title = {
-                Text(
-                    text = "Confirm Log Out",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = TextPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to log out of your account?",
-                    fontSize = 14.sp,
-                    color = TextSecondary
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        MarketplaceRepository.logout()
-                        showLogoutConfirmDialog = false
-                        onRequireLogin()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.testTag("btn_confirm_logout")
-                ) {
-                    Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showLogoutConfirmDialog = false },
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            },
-            shape = RoundedCornerShape(24.dp),
-            containerColor = Color.White
-        )
-    }
+    // Logout Confirmation Dialog (Customized pop-up matching Delete Book Listing interface)
+    PopAnimatedConfirmationDialog(
+        isOpen = showLogoutConfirmDialog,
+        onDismissRequest = { showLogoutConfirmDialog = false },
+        onConfirm = {
+            showLogoutConfirmDialog = false
+            MarketplaceRepository.logout()
+            onRequireLogin()
+        },
+        title = "Log Out?",
+        description = "Are you sure you want to log out of your student account? Your local session will be purged and you will need to sign in again to access the marketplace.",
+        confirmButtonText = "Log Out",
+        confirmButtonColor = Color(0xFFEF4444),
+        icon = Icons.AutoMirrored.Outlined.Logout,
+        iconColor = Color(0xFFEF4444),
+        testTagConfirm = "btn_confirm_logout"
+    )
 
     // Admin PIN Verification Dialog
     if (showAdminPinDialog) {
@@ -1274,6 +1295,67 @@ fun ProfileScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Profile Photo preview & upload in Edit Dialog
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .clickable { requestPhotoUpload() },
+                            shape = CircleShape,
+                            color = PrimaryPurpleLight
+                        ) {
+                            if (!currentUser.profilePhotoUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = currentUser.profilePhotoUri,
+                                    contentDescription = "Profile Photo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else if (currentUser.profilePhotoRes != null) {
+                                Image(
+                                    painter = painterResource(id = currentUser.profilePhotoRes!!),
+                                    contentDescription = "Profile Photo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(Color(0xFFE2E8F0)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Person,
+                                        contentDescription = null,
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Column {
+                            OutlinedButton(
+                                onClick = { requestPhotoUpload() },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryPurple),
+                                border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.5f)),
+                                modifier = Modifier.height(36.dp).testTag("btn_edit_change_photo")
+                            ) {
+                                Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (isUploadingPhoto) "Compressing..." else "Change Photo", fontSize = 12.sp)
+                            }
+                            Text("Stored securely in Cloud Storage", fontSize = 10.sp, color = TextMuted)
+                        }
+                    }
+
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },

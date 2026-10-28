@@ -87,21 +87,21 @@ fun ChatScreen(
         }
     }
 
-    val matchedOtherUser = otherUserProfile ?: allUsers.find { it.id == otherUserId }
-    val otherUserName = otherUserProfile?.name?.takeIf { it.isNotBlank() }
-        ?: matchedOtherUser?.name
+    val matchedOtherUser = allUsers.find { it.id == otherUserId } ?: otherUserProfile
+    val otherUserName = matchedOtherUser?.name?.takeIf { it.isNotBlank() }
+        ?: otherUserProfile?.name?.takeIf { it.isNotBlank() }
         ?: conversation?.getEffectiveOtherUserName(currentUser.id)
         ?.takeIf { it.isNotBlank() }
         ?: "Student"
-    val otherUserCollege = otherUserProfile?.college?.takeIf { it.isNotBlank() }
-        ?: matchedOtherUser?.college
+    val otherUserCollege = matchedOtherUser?.college?.takeIf { it.isNotBlank() }
+        ?: otherUserProfile?.college?.takeIf { it.isNotBlank() }
         ?: conversation?.getEffectiveOtherUserCollege(currentUser.id)
         ?: ""
-    val otherUserAvatarUri = otherUserProfile?.profilePhotoUri
-        ?: matchedOtherUser?.profilePhotoUri
+    val otherUserAvatarUri = matchedOtherUser?.profilePhotoUri
+        ?: otherUserProfile?.profilePhotoUri
         ?: conversation?.getEffectiveOtherUserAvatarUri(currentUser.id)
-    val otherUserAvatarRes = otherUserProfile?.profilePhotoRes
-        ?: matchedOtherUser?.profilePhotoRes
+    val otherUserAvatarRes = matchedOtherUser?.profilePhotoRes
+        ?: otherUserProfile?.profilePhotoRes
         ?: conversation?.otherUserAvatarRes
 
     // Resolve real phone number directly from other participant's profile
@@ -658,16 +658,18 @@ private fun ChatBubble(
             }
         } else {
             // Incoming Received message with asynchronously resolved sender profile (single source of truth)
-            val resolvedSenderName = senderProfile?.name
+            val liveSender = allUsers.find { it.id == message.senderId }
+            val effectiveSender = liveSender ?: senderProfile
+            val resolvedSenderName = effectiveSender?.name
                 ?: message.senderName.takeIf { it.isNotBlank() }
                 ?: counterpartyName.takeIf { it.isNotBlank() }
                 ?: "Student"
 
-            val resolvedAvatarUri = senderProfile?.profilePhotoUri
+            val resolvedAvatarUri = effectiveSender?.profilePhotoUri
                 ?: message.senderAvatarUri
                 ?: counterpartyAvatarUri
 
-            val resolvedAvatarRes = senderProfile?.profilePhotoRes
+            val resolvedAvatarRes = effectiveSender?.profilePhotoRes
                 ?: message.senderAvatarRes
                 ?: counterpartyAvatarRes
 

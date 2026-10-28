@@ -785,7 +785,6 @@ private fun SignInForm(
             value = email,
             onValueChange = onEmailChange,
             label = { Text("Email Address") },
-            placeholder = { Text("e.g. student@fpi.edu.bd") },
             enabled = !isLoading,
             leadingIcon = {
                 Icon(
@@ -815,7 +814,6 @@ private fun SignInForm(
             value = password,
             onValueChange = onPasswordChange,
             label = { Text("Password") },
-            placeholder = { Text("Enter your password") },
             enabled = !isLoading,
             leadingIcon = {
                 Icon(
@@ -1141,7 +1139,6 @@ private fun SignUpForm(
                             step1Error = null
                         },
                         label = { Text("Full Name") },
-                        placeholder = { Text("e.g. Shakil Ahmed") },
                         enabled = !isLoading,
                         leadingIcon = {
                             Icon(
@@ -1185,7 +1182,6 @@ private fun SignUpForm(
                             step1Error = null
                         },
                         label = { Text("Email Address") },
-                        placeholder = { Text("e.g. student@fpi.edu.bd") },
                         enabled = !isLoading,
                         leadingIcon = {
                             Icon(
@@ -1293,7 +1289,6 @@ private fun SignUpForm(
                             step1Error = null
                         },
                         label = { Text("Mobile Phone Number") },
-                        placeholder = { Text("01712-345678") },
                         enabled = !isLoading,
                         leadingIcon = {
                             Icon(

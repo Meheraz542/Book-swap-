@@ -31,9 +31,10 @@ class MarketplaceApplication : Application() {
         // Robust fallback with explicit FirebaseOptions from google-services.json
         try {
             if (FirebaseApp.getApps(this).isEmpty()) {
+                val apiKey = com.example.BuildConfig.GOOGLE_API_KEY.ifEmpty { "" }
                 val options = FirebaseOptions.Builder()
                     .setApplicationId("1:986504877917:android:1f76f3f3338ce3a1eabab4")
-                    .setApiKey("AIzaSyD2RDBEXhKVXADbPD-SsM0h5YPNgf9ntE4")
+                    .setApiKey(apiKey)
                     .setProjectId("studio-4383603118-a2874")
                     .setStorageBucket("studio-4383603118-a2874.firebasestorage.app")
                     .setGcmSenderId("986504877917")

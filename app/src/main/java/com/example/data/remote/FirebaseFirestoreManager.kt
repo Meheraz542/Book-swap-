@@ -22,9 +22,10 @@ class FirebaseFirestoreManager(private val context: Context) {
                 try {
                     FirebaseApp.initializeApp(context) ?: throw IllegalStateException("initializeApp returned null")
                 } catch (_: Exception) {
+                    val apiKey = com.example.BuildConfig.GOOGLE_API_KEY.ifEmpty { "" }
                     val options = com.google.firebase.FirebaseOptions.Builder()
                         .setApplicationId("1:986504877917:android:1f76f3f3338ce3a1eabab4")
-                        .setApiKey("AIzaSyD2RDBEXhKVXADbPD-SsM0h5YPNgf9ntE4")
+                        .setApiKey(apiKey)
                         .setProjectId("studio-4383603118-a2874")
                         .setStorageBucket("studio-4383603118-a2874.firebasestorage.app")
                         .setGcmSenderId("986504877917")
@@ -237,6 +238,21 @@ class FirebaseFirestoreManager(private val context: Context) {
                     onSetsUpdated(sets)
                 }
             }
+    }
+
+    suspend fun fetchBookSetsOnce(): List<BookSet> {
+        return try {
+            val snapshot = firestore.collection("bookSets")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .get()
+                .await()
+            val sets = snapshot.documents.mapNotNull { docToBookSet(it) }
+            Log.d(tag, "Fetched ${sets.size} book sets once from Firestore")
+            sets
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to fetch book sets once", e)
+            emptyList()
+        }
     }
 
     suspend fun updateBookSetStatus(setId: String, status: SetStatus) {

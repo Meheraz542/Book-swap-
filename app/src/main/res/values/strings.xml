@@ -2,7 +2,6 @@
     <string name="app_name">BookSwap</string>
     <string name="default_web_client_id" translatable="false">986504877917-f5pncb9l1ct19ami7v66h8rbt51js93k.apps.googleusercontent.com</string>
     <string name="google_app_id" translatable="false">1:986504877917:android:1f76f3f3338ce3a1eabab4</string>
-    <string name="google_api_key" translatable="false">AIzaSyD2RDBEXhKVXADbPD-SsM0h5YPNgf9ntE4</string>
     <string name="project_id" translatable="false">studio-4383603118-a2874</string>
     <string name="gcm_defaultSenderId" translatable="false">986504877917</string>
     <string name="google_storage_bucket" translatable="false">studio-4383603118-a2874.firebasestorage.app</string>

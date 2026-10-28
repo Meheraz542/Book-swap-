@@ -20,13 +20,26 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `verify repository initial data`() {
-    val user = com.example.data.MarketplaceRepository.currentUser.value
-    assertEquals("Super Admin", user.name)
-    assertEquals("mdmaheraz65@gmail.com", user.email)
-    assertEquals("ADMIN", user.role)
+  fun `verify repository initial data and logout purge`() = kotlinx.coroutines.test.runTest {
+    // Startup check: unauthenticated on initial clean state
+    org.junit.Assert.assertFalse(com.example.data.MarketplaceRepository.isLoggedIn.value)
     val sets = com.example.data.MarketplaceRepository.bookSets.value
     org.junit.Assert.assertNotNull(sets)
+
+    // User logs in with admin credentials
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val authManager = com.example.data.auth.AuthManager(context)
+    val res = authManager.signIn("mdmaheraz65@gmail.com", "meheraz12@#$")
+    org.junit.Assert.assertTrue(res is com.example.data.auth.AuthResult.Success)
+    val adminUser = (res as com.example.data.auth.AuthResult.Success).user
+    assertEquals("Super Admin", adminUser.name)
+    assertEquals("mdmaheraz65@gmail.com", adminUser.email)
+    assertEquals("ADMIN", adminUser.role)
+
+    // Logging out purges session
+    com.example.data.MarketplaceRepository.logoutAsync()
+    org.junit.Assert.assertFalse(com.example.data.MarketplaceRepository.isLoggedIn.value)
+    org.junit.Assert.assertEquals("", com.example.data.MarketplaceRepository.currentUser.value.id)
   }
 
   @Test

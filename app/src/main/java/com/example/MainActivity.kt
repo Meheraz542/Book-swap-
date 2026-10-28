@@ -68,7 +68,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp() {
     val isLoggedIn by MarketplaceRepository.isLoggedIn.collectAsState()
-    var isGuestMode by remember { mutableStateOf(false) }
     var isAppLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
@@ -84,25 +83,23 @@ fun MainApp() {
         if (loading) {
             AppLoadingSplashScreen()
         } else {
-            val showMain = isLoggedIn || isGuestMode
+            // Strict Startup Auth Check: If session exists -> Home screen; otherwise -> AuthScreen
             Crossfade(
-                targetState = showMain,
+                targetState = isLoggedIn,
                 animationSpec = tween(300),
                 label = "authCrossfade"
-            ) { mainVisible ->
-                if (!mainVisible) {
+            ) { authenticated ->
+                if (!authenticated) {
                     AuthScreen(
                         onAuthSuccess = {
-                            isGuestMode = false
+                            // Authenticated state is handled reactively by isLoggedIn StateFlow
                         },
-                        onDismiss = {
-                            isGuestMode = true
-                        }
+                        onDismiss = null // Strict wall: no guest bypass
                     )
                 } else {
                     MainAppContent(
                         onRequestLogin = {
-                            isGuestMode = false
+                            MarketplaceRepository.logout()
                         }
                     )
                 }

@@ -1,11 +1,13 @@
 package com.example.ui.components
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +44,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1298,4 +1301,165 @@ fun NeumorphicGlassCard(
         Column(content = content)
     }
 }
+
+/**
+ * Animated Confirmation Dialog with a bouncy 'Pop' entrance effect,
+ * soft rounded card, colored circular icon header, Cancel and Action buttons.
+ * Used for high-stakes actions like Delete Listing and Log Out.
+ */
+@Composable
+fun PopAnimatedConfirmationDialog(
+    isOpen: Boolean,
+    onDismissRequest: () -> Unit,
+    onConfirm: () -> Unit,
+    title: String,
+    description: String,
+    confirmButtonText: String,
+    confirmButtonColor: Color,
+    icon: ImageVector,
+    iconColor: Color,
+    testTagConfirm: String
+) {
+    if (isOpen) {
+        Dialog(
+            onDismissRequest = onDismissRequest,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            var animateIn by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                animateIn = true
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F172A).copy(alpha = 0.40f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDismissRequest() },
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVisibility(
+                    visible = animateIn,
+                    enter = scaleIn(
+                        initialScale = 0.60f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    ) + fadeIn(animationSpec = tween(180)),
+                    exit = scaleOut(targetScale = 0.8f) + fadeOut(animationSpec = tween(120))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {} // Prevent dismiss on modal card click
+                            .liquidGlass(
+                                shape = RoundedCornerShape(28.dp),
+                                backgroundBrush = Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.94f),
+                                        Color(0xFFF8FAFC).copy(alpha = 0.86f),
+                                        Color(0xFFEFF6FF).copy(alpha = 0.88f)
+                                    )
+                                ),
+                                borderBrush = GlassRimBrush,
+                                borderWidth = 1.5.dp,
+                                elevation = 16.dp,
+                                shadowColor = DeepShadowColor,
+                                innerShadowColor = Color(0x14000000),
+                                innerHighlightColor = Color.White.copy(alpha = 0.92f),
+                                showTopSheen = true
+                            )
+                            .padding(24.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(58.dp)
+                                    .liquidGlass(
+                                        shape = CircleShape,
+                                        backgroundColor = iconColor.copy(alpha = 0.12f),
+                                        borderBrush = Brush.linearGradient(
+                                            listOf(
+                                                iconColor.copy(alpha = 0.45f),
+                                                iconColor.copy(alpha = 0.15f)
+                                            )
+                                        ),
+                                        borderWidth = 1.2.dp,
+                                        elevation = 4.dp,
+                                        shadowColor = iconColor.copy(alpha = 0.22f),
+                                        showTopSheen = true
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = iconColor,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            Text(
+                                text = title,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = description,
+                                fontSize = 13.5.sp,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 19.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                FrostedGlassButton(
+                                    text = "Cancel",
+                                    onClick = onDismissRequest,
+                                    textColor = TextSecondary,
+                                    modifier = Modifier.weight(1f),
+                                    height = 46.dp,
+                                    testTag = "btn_popup_cancel"
+                                )
+
+                                GlassButton(
+                                    text = confirmButtonText,
+                                    onClick = onConfirm,
+                                    gradient = Brush.horizontalGradient(
+                                        listOf(confirmButtonColor, confirmButtonColor.copy(alpha = 0.85f))
+                                    ),
+                                    modifier = Modifier.weight(1.3f),
+                                    height = 46.dp,
+                                    testTag = testTagConfirm
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 

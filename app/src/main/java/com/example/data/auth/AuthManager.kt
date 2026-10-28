@@ -318,11 +318,11 @@ class AuthManager(
                 profilePhotoUri = null,
                 role = "ADMIN",
                 accountStatus = "ACTIVE",
-                isCurrentSession = true
+                isCurrentSession = false
             )
             userDao.insertUser(admin)
         } else {
-            userDao.updateUser(existingAdmin.copy(role = "ADMIN", isCurrentSession = true))
+            userDao.updateUser(existingAdmin.copy(role = "ADMIN"))
         }
     }
 

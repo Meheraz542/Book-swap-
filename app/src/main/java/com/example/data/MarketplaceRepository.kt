@@ -22,7 +22,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import android.util.Log
+import android.net.Uri
 import com.example.data.remote.FirebaseFirestoreManager
+import com.example.data.storage.FirebaseStorageManager
 
 object MarketplaceRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -65,8 +67,8 @@ object MarketplaceRepository {
         accountStatus = "ACTIVE"
     )
 
-    // Current User profile (default admin profile for test harness, but unauthenticated until login)
-    private val _currentUser = MutableStateFlow(defaultAdminProfile)
+    // Current User profile (defaults to emptyGuestProfile until an active session is restored or logged in)
+    private val _currentUser = MutableStateFlow(emptyGuestProfile)
     val currentUser: StateFlow<UserProfile> = _currentUser.asStateFlow()
 
     // Logged in state: check Firebase Authentication directly on app start
@@ -321,6 +323,21 @@ object MarketplaceRepository {
                         if (matched != null && (matched.name != current.name || matched.college != current.college || matched.profilePhotoUri != current.profilePhotoUri || matched.phone != current.phone || matched.role != current.role || matched.accountStatus != current.accountStatus)) {
                             _currentUser.value = matched
                             syncUserToRoom(matched)
+                        }
+                    }
+                    // Real-time propagation to in-memory conversations for instant avatar updates
+                    _conversations.update { convList ->
+                        convList.map { conv ->
+                            val buyer = firestoreUsers.find { it.id == conv.buyerId }
+                            val seller = firestoreUsers.find { it.id == conv.sellerId }
+                            var c = conv
+                            if (buyer != null && buyer.profilePhotoUri != c.buyerAvatarUri) {
+                                c = c.copy(buyerAvatarUri = buyer.profilePhotoUri)
+                            }
+                            if (seller != null && seller.profilePhotoUri != c.sellerAvatarUri) {
+                                c = c.copy(sellerAvatarUri = seller.profilePhotoUri)
+                            }
+                            c
                         }
                     }
                     Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
@@ -1103,13 +1120,29 @@ object MarketplaceRepository {
         }
     }
 
-    // Update Profile Photo
+    // Update Profile Photo with global real-time propagation across UI components
     fun updateProfilePhotoUri(uri: String?) {
         val updated = _currentUser.value.copy(profilePhotoUri = uri)
         _currentUser.value = updated
         _userProfileCache[updated.id] = updated
         _allUsers.update { list ->
-            list.map { if (it.id == updated.id) updated else it }
+            if (list.any { it.id == updated.id }) {
+                list.map { if (it.id == updated.id) updated else it }
+            } else {
+                list + updated
+            }
+        }
+        _conversations.update { convList ->
+            convList.map { conv ->
+                var c = conv
+                if (c.buyerId == updated.id) {
+                    c = c.copy(buyerAvatarUri = updated.profilePhotoUri)
+                }
+                if (c.sellerId == updated.id) {
+                    c = c.copy(sellerAvatarUri = updated.profilePhotoUri)
+                }
+                c
+            }
         }
 
         database?.let { db ->
@@ -1123,6 +1156,55 @@ object MarketplaceRepository {
                 } catch (e: Exception) {
                     Log.w("MarketplaceRepo", "Failed to sync photo to Firestore: ${e.message}")
                 }
+            }
+        }
+    }
+
+    /**
+     * Manually triggers a re-fetch of book sets from Cloud Firestore and updates local database cache.
+     * Supports pull-to-refresh on the home feed.
+     */
+    suspend fun refreshBookSets() = withContext(Dispatchers.IO) {
+        try {
+            val remoteSets = firestoreManager?.fetchBookSetsOnce() ?: emptyList()
+            if (remoteSets.isNotEmpty()) {
+                _bookSets.value = remoteSets
+                database?.let { db ->
+                    for (set in remoteSets) {
+                        db.bookSetDao().insertBookSetWithBooks(
+                            set.toEntity(),
+                            set.includedBooks.map { it.toEntity(set.id) }
+                        )
+                    }
+                }
+                Log.d("MarketplaceRepo", "Manually refreshed ${remoteSets.size} bookSets from Firestore")
+            }
+        } catch (e: Exception) {
+            Log.e("MarketplaceRepo", "Failed to refresh book sets: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Compresses the selected image locally to optimize bandwidth,
+     * securely uploads it to Firebase Cloud Storage,
+     * immediately retrieves the secure download URL and updates the user's document in Cloud Firestore,
+     * propagating real-time updates across the app.
+     */
+    fun uploadAndSyncProfilePhoto(context: Context, uri: Uri, onComplete: ((Boolean) -> Unit)? = null) {
+        val current = _currentUser.value
+        if (current.id.isBlank()) {
+            onComplete?.invoke(false)
+            return
+        }
+
+        scope.launch {
+            try {
+                val downloadUrl = FirebaseStorageManager.compressAndUploadProfileImage(context, current.id, uri)
+                updateProfilePhotoUri(downloadUrl)
+                onComplete?.invoke(true)
+            } catch (e: Exception) {
+                Log.e("MarketplaceRepo", "Failed to compress, upload, and sync profile photo", e)
+                onComplete?.invoke(false)
             }
         }
     }
@@ -1151,10 +1233,22 @@ object MarketplaceRepository {
     }
 
     // Authentication: Login & Logout & SignUp
+    suspend fun logoutAsync() = withContext(Dispatchers.IO + NonCancellable) {
+        _isLoggedIn.value = false
+        _currentUser.value = emptyGuestProfile
+        authManager?.signOut()
+        database?.let { db ->
+            db.userDao().clearCurrentSession()
+        }
+        _isLoggedIn.value = false
+        _currentUser.value = emptyGuestProfile
+    }
+
     fun logout() {
         _isLoggedIn.value = false
-        scope.launch(Dispatchers.IO) {
-            authManager?.signOut()
+        _currentUser.value = emptyGuestProfile
+        scope.launch(Dispatchers.IO + NonCancellable) {
+            logoutAsync()
         }
     }
 

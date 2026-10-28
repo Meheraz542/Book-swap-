@@ -30,9 +30,12 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -118,16 +121,32 @@ fun HomeScreen(
         }
     }
 
-    LazyColumn(
+    var isRefreshing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            coroutineScope.launch {
+                isRefreshing = true
+                MarketplaceRepository.refreshBookSets()
+                isRefreshing = false
+            }
+        },
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(BgCanvasGradientStart, BgCanvasGradientEnd)
-                )
-            ),
-        contentPadding = PaddingValues(bottom = 100.dp)
+            .testTag("home_pull_to_refresh")
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(BgCanvasGradientStart, BgCanvasGradientEnd)
+                    )
+                ),
+            contentPadding = PaddingValues(bottom = 100.dp)
+        ) {
         // Top Header
         item {
             HomeHeader(
@@ -1104,6 +1123,7 @@ fun HomeScreen(
         }
     }
 }
+}
 
 @Composable
 private fun HomeHeader(
@@ -1675,6 +1695,52 @@ fun BookSetCardVertical(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                val allUsers by MarketplaceRepository.allUsers.collectAsState()
+                val seller = allUsers.find { it.id == set.sellerId }
+                val sellerAvatarUri = seller?.profilePhotoUri
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(16.dp),
+                        shape = CircleShape,
+                        color = Color(0xFFE2E8F0)
+                    ) {
+                        if (!sellerAvatarUri.isNullOrBlank()) {
+                            AsyncImage(
+                                model = sellerAvatarUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else if (seller?.profilePhotoRes != null) {
+                            Image(
+                                painter = painterResource(id = seller.profilePhotoRes!!),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = null,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.padding(2.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = seller?.name ?: set.sellerName,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
