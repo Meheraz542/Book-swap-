@@ -56,9 +56,9 @@ class FirebaseFirestoreManager(private val context: Context) {
     // USERS COLLECTION (/users)
     // -------------------------------------------------------------
 
-    suspend fun saveUserProfile(user: UserProfile) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+    suspend fun saveUserProfile(user: UserProfile, passwordHash: String? = null) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
         try {
-            val userMap = hashMapOf(
+            val userMap = hashMapOf<String, Any?>(
                 "id" to user.id,
                 "name" to user.name,
                 "email" to user.email,
@@ -71,6 +71,9 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "accountStatus" to user.accountStatus,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
+            if (!passwordHash.isNullOrBlank()) {
+                userMap["passwordHash"] = passwordHash
+            }
             firestore.collection("users").document(user.id)
                 .set(userMap, SetOptions.merge())
                 .await()
@@ -240,14 +243,29 @@ class FirebaseFirestoreManager(private val context: Context) {
             }
     }
 
-    suspend fun fetchBookSetsOnce(): List<BookSet> {
+    suspend fun fetchBookSetsOnce(forceServer: Boolean = true): List<BookSet> {
         return try {
-            val snapshot = firestore.collection("bookSets")
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .get()
-                .await()
+            val snapshot = if (forceServer) {
+                try {
+                    firestore.collection("bookSets")
+                        .orderBy("createdAt", Query.Direction.DESCENDING)
+                        .get(com.google.firebase.firestore.Source.SERVER)
+                        .await()
+                } catch (ex: Exception) {
+                    Log.w(tag, "Server fetch failed, falling back to cache/default: ${ex.message}")
+                    firestore.collection("bookSets")
+                        .orderBy("createdAt", Query.Direction.DESCENDING)
+                        .get()
+                        .await()
+                }
+            } else {
+                firestore.collection("bookSets")
+                    .orderBy("createdAt", Query.Direction.DESCENDING)
+                    .get()
+                    .await()
+            }
             val sets = snapshot.documents.mapNotNull { docToBookSet(it) }
-            Log.d(tag, "Fetched ${sets.size} book sets once from Firestore")
+            Log.d(tag, "Fetched ${sets.size} book sets from Firestore (forceServer=$forceServer)")
             sets
         } catch (e: Exception) {
             Log.e(tag, "Failed to fetch book sets once", e)
@@ -312,6 +330,14 @@ class FirebaseFirestoreManager(private val context: Context) {
             )
         }
 
+        val parsedTech = Technology.fromId(techId)
+        val defaultCoverRes = when (parsedTech) {
+            Technology.CIVIL, Technology.AIDT -> R.drawable.book_cover_civil_1789677775416
+            Technology.ELECTRICAL, Technology.TELECOM -> R.drawable.book_cover_elec_1789677789123
+            Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
+            Technology.CSE -> R.drawable.book_cover_cse_1789735549141
+        }
+
         return BookSet(
             id = id,
             sellerId = sellerId,
@@ -323,14 +349,14 @@ class FirebaseFirestoreManager(private val context: Context) {
             sellerEmail = sellerEmail,
             title = title,
             subject = subject,
-            technology = Technology.fromId(techId),
+            technology = parsedTech,
             semester = Semester.fromId(semId),
             college = college,
             totalPrice = totalPrice,
             overallCondition = condition,
             description = description,
             includedBooks = includedBooks,
-            coverDrawableRes = null,
+            coverDrawableRes = defaultCoverRes,
             imageUrls = imageUrls,
             status = status,
             isSaved = false,

@@ -27,13 +27,14 @@ object FirebaseStorageManager {
         userId: String,
         sourceUri: Uri
     ): String = withContext(Dispatchers.IO) {
-        // Step 1: Compress locally
+        val timestamp = System.currentTimeMillis()
+        // Step 1: Compress locally with automatic downscale and 80% JPEG quality
         val compressedBytes = compressImage(context, sourceUri, maxDimension = 512, quality = 80)
 
-        // Always ensure a persistent local fallback copy is saved
+        // Always ensure a persistent local fallback copy is saved with unique timestamp
         val localPersistentUri = try {
             val dir = File(context.filesDir, "marketplace_avatars").apply { if (!exists()) mkdirs() }
-            val localFile = File(dir, "avatar_${userId}.jpg")
+            val localFile = File(dir, "avatar_${userId}_$timestamp.jpg")
             if (compressedBytes != null) {
                 FileOutputStream(localFile).use { it.write(compressedBytes) }
             } else {
@@ -41,7 +42,7 @@ object FirebaseStorageManager {
                     FileOutputStream(localFile).use { output -> input.copyTo(output) }
                 }
             }
-            Uri.fromFile(localFile).toString()
+            "${Uri.fromFile(localFile)}?t=$timestamp"
         } catch (e: Exception) {
             Log.w(TAG, "Failed to persist local avatar copy", e)
             sourceUri.toString()
@@ -66,12 +67,14 @@ object FirebaseStorageManager {
             val metadata = com.google.firebase.storage.StorageMetadata.Builder()
                 .setContentType("image/jpeg")
                 .setCustomMetadata("userId", userId)
+                .setCustomMetadata("updatedAt", timestamp.toString())
                 .build()
 
             storageRef.putBytes(compressedBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
-            Log.d(TAG, "Successfully uploaded profile picture to Firebase Storage: $downloadUrl")
-            downloadUrl
+            val finalUrl = if (downloadUrl.contains("?")) "$downloadUrl&t=$timestamp" else "$downloadUrl?t=$timestamp"
+            Log.d(TAG, "Successfully uploaded profile picture to Firebase Storage: $finalUrl")
+            finalUrl
         } catch (e: Exception) {
             Log.w(TAG, "Firebase Storage upload failed, falling back to persistent local URI: ${e.message}")
             localPersistentUri

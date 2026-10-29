@@ -91,6 +91,9 @@ interface BookSetDao {
     @Query("UPDATE book_sets SET status = :status WHERE id = :id")
     suspend fun updateBookSetStatus(id: String, status: String)
 
+    @Query("UPDATE book_sets SET sellerName = :name, sellerCollege = :college, sellerTech = :tech, sellerSem = :sem, sellerPhone = :phone WHERE sellerId = :sellerId")
+    suspend fun updateSellerInfoForSets(sellerId: String, name: String, college: String, tech: String, sem: String, phone: String)
+
     @Query("SELECT id FROM book_sets WHERE isSaved = 1")
     fun getSavedBookSetIdsFlow(): Flow<List<String>>
 

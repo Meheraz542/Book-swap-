@@ -287,11 +287,13 @@ object MarketplaceRepository {
         try {
             // Public catalog listeners (allowed by firestore.rules)
             firestore.listenAllBookSets { firestoreSets ->
-                _bookSets.value = firestoreSets
+                val currentSaved = _savedSetIds.value
+                val mapped = firestoreSets.map { it.copy(isSaved = currentSaved.contains(it.id)) }
+                _bookSets.value = mapped
                 Log.d("MarketplaceRepo", "Synced ${firestoreSets.size} bookSets from Firestore in real-time")
                 database?.let { db ->
                     scope.launch(Dispatchers.IO) {
-                        for (set in firestoreSets) {
+                        for (set in mapped) {
                             db.bookSetDao().insertBookSetWithBooks(
                                 set.toEntity(),
                                 set.includedBooks.map { it.toEntity(set.id) }
@@ -317,28 +319,8 @@ object MarketplaceRepository {
                     for (u in firestoreUsers) {
                         _userProfileCache[u.id] = u
                     }
-                    val current = _currentUser.value
-                    if (current.id.isNotBlank()) {
-                        val matched = firestoreUsers.find { it.id == current.id }
-                        if (matched != null && (matched.name != current.name || matched.college != current.college || matched.profilePhotoUri != current.profilePhotoUri || matched.phone != current.phone || matched.role != current.role || matched.accountStatus != current.accountStatus)) {
-                            _currentUser.value = matched
-                            syncUserToRoom(matched)
-                        }
-                    }
-                    // Real-time propagation to in-memory conversations for instant avatar updates
-                    _conversations.update { convList ->
-                        convList.map { conv ->
-                            val buyer = firestoreUsers.find { it.id == conv.buyerId }
-                            val seller = firestoreUsers.find { it.id == conv.sellerId }
-                            var c = conv
-                            if (buyer != null && buyer.profilePhotoUri != c.buyerAvatarUri) {
-                                c = c.copy(buyerAvatarUri = buyer.profilePhotoUri)
-                            }
-                            if (seller != null && seller.profilePhotoUri != c.sellerAvatarUri) {
-                                c = c.copy(sellerAvatarUri = seller.profilePhotoUri)
-                            }
-                            c
-                        }
+                    for (u in firestoreUsers) {
+                        propagateUserProfileUpdates(u)
                     }
                     Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
                 }
@@ -356,12 +338,7 @@ object MarketplaceRepository {
                     if (user.id.isNotBlank()) {
                         userProfileReg = firestore.listenUserProfile(user.id) { updatedProfile ->
                             if (updatedProfile != _currentUser.value) {
-                                _currentUser.value = updatedProfile
-                                _userProfileCache[updatedProfile.id] = updatedProfile
-                                _allUsers.update { list ->
-                                    list.map { if (it.id == updatedProfile.id) updatedProfile else it }
-                                }
-                                syncUserToRoom(updatedProfile)
+                                propagateUserProfileUpdates(updatedProfile)
                                 Log.d("MarketplaceRepo", "Real-time user profile updated: ${updatedProfile.name}")
                             }
                         }
@@ -1073,6 +1050,110 @@ object MarketplaceRepository {
         }
     }
 
+    /**
+     * Real-time sync for user profile updates:
+     * Reflects changes immediately across all views: current user, all users list,
+     * all existing book set listings (updating dynamic and stored seller metadata),
+     * and all active chat threads (updating buyer, seller, and otherUser names, colleges, and avatars).
+     * Synchronously propagates in memory and asynchronously persists to Room and Firestore.
+     */
+    fun propagateUserProfileUpdates(updated: UserProfile) {
+        if (updated.id.isBlank()) return
+        _userProfileCache[updated.id] = updated
+
+        if (_currentUser.value.id == updated.id) {
+            _currentUser.value = updated
+        }
+
+        _allUsers.update { list ->
+            if (list.any { it.id == updated.id }) {
+                list.map { if (it.id == updated.id) updated else it }
+            } else {
+                list + updated
+            }
+        }
+
+        // Real-time sync for user profile updates across all existing book listings
+        _bookSets.update { sets ->
+            sets.map { set ->
+                if (set.sellerId == updated.id) {
+                    set.copy(
+                        sellerName = updated.name,
+                        sellerCollege = updated.college,
+                        sellerTech = updated.technology.displayName,
+                        sellerSem = updated.currentSemester.displayName,
+                        sellerPhone = updated.phone
+                    )
+                } else {
+                    set
+                }
+            }
+        }
+
+        // Real-time sync across active chat threads
+        _conversations.update { convList ->
+            convList.map { conv ->
+                var c = conv
+                if (c.buyerId == updated.id) {
+                    c = c.copy(
+                        buyerName = updated.name,
+                        buyerCollege = updated.college,
+                        buyerAvatarUri = updated.profilePhotoUri
+                    )
+                }
+                if (c.sellerId == updated.id) {
+                    c = c.copy(
+                        sellerName = updated.name,
+                        sellerCollege = updated.college,
+                        sellerAvatarUri = updated.profilePhotoUri
+                    )
+                }
+                val curUserId = _currentUser.value.id
+                if (c.getOtherUserId(curUserId) == updated.id) {
+                    c = c.copy(
+                        otherUserName = updated.name,
+                        otherUserCollege = updated.college,
+                        otherUserAvatarUri = updated.profilePhotoUri
+                    )
+                }
+                c
+            }
+        }
+
+        database?.let { db ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val currentEntity = db.userDao().getUserById(updated.id)
+                    if (currentEntity != null) {
+                        db.userDao().updateUser(
+                            currentEntity.copy(
+                                name = updated.name,
+                                email = updated.email,
+                                phone = updated.phone,
+                                college = updated.college,
+                                technologyId = updated.technology.id,
+                                semesterId = updated.currentSemester.id,
+                                profilePhotoUri = updated.profilePhotoUri,
+                                role = updated.role,
+                                accountStatus = updated.accountStatus
+                            )
+                        )
+                    }
+                    db.bookSetDao().updateSellerInfoForSets(
+                        sellerId = updated.id,
+                        name = updated.name,
+                        college = updated.college,
+                        tech = updated.technology.displayName,
+                        sem = updated.currentSemester.displayName,
+                        phone = updated.phone
+                    )
+                } catch (e: Exception) {
+                    Log.w("MarketplaceRepo", "Failed to sync propagated updates to Room: ${e.message}")
+                }
+            }
+        }
+    }
+
     // Update Profile
     fun updateUserProfile(
         name: String,
@@ -1090,32 +1171,13 @@ object MarketplaceRepository {
             technology = tech,
             currentSemester = sem
         )
-        _currentUser.value = updated
-        _userProfileCache[updated.id] = updated
-        _allUsers.update { list ->
-            list.map { if (it.id == updated.id) updated else it }
-        }
+        propagateUserProfileUpdates(updated)
 
-        database?.let { db ->
-            scope.launch(Dispatchers.IO) {
-                val currentEntity = db.userDao().getUserById(updated.id)
-                if (currentEntity != null) {
-                    db.userDao().updateUser(
-                        currentEntity.copy(
-                            name = name,
-                            email = email,
-                            phone = phone,
-                            college = college,
-                            technologyId = tech.id,
-                            semesterId = sem.id
-                        )
-                    )
-                }
-                try {
-                    firestoreManager?.saveUserProfile(updated)
-                } catch (e: Exception) {
-                    Log.w("MarketplaceRepo", "Failed to sync updated profile to Firestore: ${e.message}")
-                }
+        scope.launch(Dispatchers.IO) {
+            try {
+                firestoreManager?.saveUserProfile(updated)
+            } catch (e: Exception) {
+                Log.w("MarketplaceRepo", "Failed to sync updated profile to Firestore: ${e.message}")
             }
         }
     }
@@ -1123,64 +1185,46 @@ object MarketplaceRepository {
     // Update Profile Photo with global real-time propagation across UI components
     fun updateProfilePhotoUri(uri: String?) {
         val updated = _currentUser.value.copy(profilePhotoUri = uri)
-        _currentUser.value = updated
-        _userProfileCache[updated.id] = updated
-        _allUsers.update { list ->
-            if (list.any { it.id == updated.id }) {
-                list.map { if (it.id == updated.id) updated else it }
-            } else {
-                list + updated
-            }
-        }
-        _conversations.update { convList ->
-            convList.map { conv ->
-                var c = conv
-                if (c.buyerId == updated.id) {
-                    c = c.copy(buyerAvatarUri = updated.profilePhotoUri)
-                }
-                if (c.sellerId == updated.id) {
-                    c = c.copy(sellerAvatarUri = updated.profilePhotoUri)
-                }
-                c
-            }
-        }
+        propagateUserProfileUpdates(updated)
 
-        database?.let { db ->
-            scope.launch(Dispatchers.IO) {
-                val currentEntity = db.userDao().getUserById(updated.id)
-                if (currentEntity != null) {
-                    db.userDao().updateUser(currentEntity.copy(profilePhotoUri = uri))
-                }
-                try {
-                    firestoreManager?.saveUserProfile(updated)
-                } catch (e: Exception) {
-                    Log.w("MarketplaceRepo", "Failed to sync photo to Firestore: ${e.message}")
-                }
+        scope.launch(Dispatchers.IO) {
+            try {
+                firestoreManager?.saveUserProfile(updated)
+            } catch (e: Exception) {
+                Log.w("MarketplaceRepo", "Failed to sync photo to Firestore: ${e.message}")
             }
         }
     }
 
     /**
-     * Manually triggers a re-fetch of book sets from Cloud Firestore and updates local database cache.
+     * Manually triggers a re-fetch of book sets from Cloud Firestore (forcing server fetch)
+     * and updates local state and database cache.
      * Supports pull-to-refresh on the home feed.
      */
-    suspend fun refreshBookSets() = withContext(Dispatchers.IO) {
+    suspend fun refreshBookSets(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val remoteSets = firestoreManager?.fetchBookSetsOnce() ?: emptyList()
+            val remoteSets = firestoreManager?.fetchBookSetsOnce(forceServer = true) ?: emptyList()
             if (remoteSets.isNotEmpty()) {
-                _bookSets.value = remoteSets
+                val currentSaved = _savedSetIds.value
+                val mapped = remoteSets.map { it.copy(isSaved = currentSaved.contains(it.id)) }
+                _bookSets.value = mapped
                 database?.let { db ->
-                    for (set in remoteSets) {
+                    for (set in mapped) {
                         db.bookSetDao().insertBookSetWithBooks(
                             set.toEntity(),
                             set.includedBooks.map { it.toEntity(set.id) }
                         )
                     }
                 }
-                Log.d("MarketplaceRepo", "Manually refreshed ${remoteSets.size} bookSets from Firestore")
+                Log.d("MarketplaceRepo", "Manually refreshed ${remoteSets.size} bookSets from Firestore server")
+                return@withContext true
+            } else {
+                Log.d("MarketplaceRepo", "fetchBookSetsOnce returned 0 sets or firestoreManager is null")
+                return@withContext false
             }
         } catch (e: Exception) {
             Log.e("MarketplaceRepo", "Failed to refresh book sets: ${e.message}", e)
+            return@withContext false
         }
     }
 
@@ -1629,7 +1673,18 @@ object MarketplaceRepository {
         )
     }
 
-    fun deleteSet(setId: String) {
+    fun deleteSet(setId: String, requestingUserId: String? = null, requestingUserRole: String? = null) {
+        val user = _currentUser.value
+        val userId = requestingUserId ?: user.id
+        val role = requestingUserRole ?: user.role
+        val email = user.email
+        val target = _bookSets.value.find { it.id == setId }
+        val isCreator = target != null && (target.sellerId == userId || (target.sellerEmail.isNotBlank() && target.sellerEmail.equals(email, ignoreCase = true)))
+        val isAdmin = role == "ADMIN" || email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
+        if (!isCreator && !isAdmin) {
+            Log.w("MarketplaceRepo", "Unauthorized delete attempt for set $setId by user $userId")
+            return
+        }
         adminDeleteSet(setId)
     }
 

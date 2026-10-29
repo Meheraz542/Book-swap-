@@ -95,6 +95,9 @@ fun ProfileScreen(
             isUploadingPhoto = true
             MarketplaceRepository.uploadAndSyncProfilePhoto(context, uri) {
                 isUploadingPhoto = false
+                try {
+                    coil.Coil.imageLoader(context).memoryCache?.clear()
+                } catch (_: Exception) {}
             }
         }
     }
@@ -389,9 +392,19 @@ fun ProfileScreen(
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(Color(0xFFE2E8F0))
                             ) {
-                                if (set.coverDrawableRes != null) {
+                                val coverUrl = set.primaryCoverUrl
+                                if (!coverUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = coverUrl,
+                                        contentDescription = set.title,
+                                        contentScale = ContentScale.Crop,
+                                        placeholder = painterResource(id = set.effectiveCoverDrawableRes),
+                                        error = painterResource(id = set.effectiveCoverDrawableRes),
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
                                     Image(
-                                        painter = painterResource(id = set.coverDrawableRes),
+                                        painter = painterResource(id = set.effectiveCoverDrawableRes),
                                         contentDescription = set.title,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
@@ -452,9 +465,19 @@ fun ProfileScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color(0xFFE2E8F0))
                         ) {
-                            if (set.coverDrawableRes != null) {
+                            val coverUrl = set.primaryCoverUrl
+                            if (!coverUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = coverUrl,
+                                    contentDescription = set.title,
+                                    contentScale = ContentScale.Crop,
+                                    placeholder = painterResource(id = set.effectiveCoverDrawableRes),
+                                    error = painterResource(id = set.effectiveCoverDrawableRes),
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
                                 Image(
-                                    painter = painterResource(id = set.coverDrawableRes),
+                                    painter = painterResource(id = set.effectiveCoverDrawableRes),
                                     contentDescription = set.title,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -693,8 +716,8 @@ fun ProfileScreen(
             MarketplaceRepository.logout()
             onRequireLogin()
         },
-        title = "Log Out?",
-        description = "Are you sure you want to log out of your student account? Your local session will be purged and you will need to sign in again to access the marketplace.",
+        title = "Log Out",
+        description = "Are you sure you want to log out?",
         confirmButtonText = "Log Out",
         confirmButtonColor = Color(0xFFEF4444),
         icon = Icons.AutoMirrored.Outlined.Logout,

@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -31,6 +33,8 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.*
+import com.example.model.effectiveCoverDrawableRes
+import com.example.model.primaryCoverUrl
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,9 +73,16 @@ fun SetDetailsScreen(
     val sellerUser = (if (currentUser.id == bookSet.sellerId) currentUser else null)
         ?: allUsers.find { it.id == bookSet.sellerId }
         ?: MarketplaceRepository.getCachedUserProfile(bookSet.sellerId)
-    val sellerAvatarUri = sellerUser?.profilePhotoUri
+    val dynamicSellerName = sellerUser?.name?.takeIf { it.isNotBlank() } ?: bookSet.sellerName
+    val dynamicSellerCollege = sellerUser?.college?.takeIf { it.isNotBlank() } ?: bookSet.sellerCollege
+    val dynamicSellerTech = sellerUser?.technology?.displayName?.takeIf { it.isNotBlank() } ?: bookSet.sellerTech
+    val dynamicSellerSem = sellerUser?.currentSemester?.displayName?.takeIf { it.isNotBlank() } ?: bookSet.sellerSem
+    val dynamicSellerPhone = sellerUser?.phone?.takeIf { it.isNotBlank() } ?: bookSet.sellerPhone
+    val dynamicSellerAvatarUri = sellerUser?.profilePhotoUri
     val sellerAvatarRes = sellerUser?.profilePhotoRes
-    val isOwner = currentUser.id == bookSet.sellerId
+    val isOwner = currentUser.id == bookSet.sellerId || (bookSet.sellerEmail.isNotBlank() && currentUser.email.equals(bookSet.sellerEmail, ignoreCase = true))
+    val isAdmin = currentUser.role == "ADMIN" || currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
+    val canDelete = isOwner || isAdmin
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showMarkAsSoldConfirmDialog by remember { mutableStateOf(false) }
@@ -118,15 +129,28 @@ fun SetDetailsScreen(
                     testTag = "btn_details_back"
                 )
 
-                // Single Delete Button replacing Like & Save icons
-                GlassIconButton(
-                    onClick = { showDeleteConfirmDialog = true },
-                    icon = Icons.Outlined.Delete,
-                    contentDescription = "Delete Listing",
-                    tone = GlassIconTone.DANGER,
-                    size = 44.dp,
-                    testTag = "btn_details_delete"
-                )
+                // Role-Based Access Control: Delete Listing for Creator & Admin; Save Book for third-party viewers
+                if (canDelete) {
+                    GlassIconButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        icon = Icons.Outlined.Delete,
+                        contentDescription = "Delete Listing",
+                        tone = GlassIconTone.DANGER,
+                        size = 44.dp,
+                        testTag = "btn_details_delete"
+                    )
+                } else {
+                    val savedIds by MarketplaceRepository.savedSetIds.collectAsState()
+                    val isSaved = savedIds.contains(bookSet.id)
+                    GlassIconButton(
+                        onClick = { MarketplaceRepository.toggleSaveSet(bookSet.id) },
+                        icon = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = if (isSaved) "Remove from Saved" else "Save Book",
+                        tone = if (isSaved) GlassIconTone.PRIMARY_PURPLE else GlassIconTone.FROSTED_WHITE,
+                        size = 44.dp,
+                        testTag = "btn_details_save"
+                    )
+                }
             }
         },
         bottomBar = {
@@ -253,17 +277,24 @@ fun SetDetailsScreen(
                         shape = RoundedCornerShape(12.dp),
                         color = Color.White
                     ) {
-                        if (allUploadedPhotos.isNotEmpty()) {
-                            val activePhoto = allUploadedPhotos.getOrElse(selectedPhotoIndex) { allUploadedPhotos.first() }
+                        val activePhoto = if (allUploadedPhotos.isNotEmpty()) {
+                            allUploadedPhotos.getOrElse(selectedPhotoIndex) { allUploadedPhotos.first() }
+                        } else {
+                            bookSet.primaryCoverUrl
+                        }
+
+                        if (!activePhoto.isNullOrBlank()) {
                             AsyncImage(
                                 model = activePhoto,
                                 contentDescription = bookSet.title,
                                 contentScale = ContentScale.Crop,
+                                placeholder = painterResource(id = bookSet.effectiveCoverDrawableRes),
+                                error = painterResource(id = bookSet.effectiveCoverDrawableRes),
                                 modifier = Modifier.fillMaxSize()
                             )
-                        } else if (bookSet.coverDrawableRes != null) {
+                        } else {
                             Image(
-                                painter = painterResource(id = bookSet.coverDrawableRes),
+                                painter = painterResource(id = bookSet.effectiveCoverDrawableRes),
                                 contentDescription = bookSet.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -642,9 +673,9 @@ fun SetDetailsScreen(
                             shape = CircleShape,
                             color = Color(0xFFE2E8F0)
                         ) {
-                            if (!sellerAvatarUri.isNullOrBlank()) {
+                            if (!dynamicSellerAvatarUri.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = sellerAvatarUri,
+                                    model = dynamicSellerAvatarUri,
                                     contentDescription = "Seller Profile Picture",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -672,20 +703,20 @@ fun SetDetailsScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = bookSet.sellerName,
+                                text = dynamicSellerName,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = bookSet.sellerCollege,
+                                text = dynamicSellerCollege,
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${bookSet.sellerTech} • ${bookSet.sellerSem}",
+                                text = "$dynamicSellerTech • $dynamicSellerSem",
                                 fontSize = 12.sp,
                                 color = AccentBlue,
                                 fontWeight = FontWeight.Medium
@@ -715,7 +746,7 @@ fun SetDetailsScreen(
                         // Phone call action
                         Surface(
                             onClick = {
-                                val phone = bookSet.sellerPhone.trim()
+                                val phone = dynamicSellerPhone.trim()
                                 if (phone.isNotBlank()) {
                                     val cleanPhone = phone.filter { it.isDigit() || it == '+' }
                                     val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanPhone"))
@@ -731,7 +762,7 @@ fun SetDetailsScreen(
                                 } else {
                                     android.widget.Toast.makeText(
                                         context,
-                                        "No phone number available for ${bookSet.sellerName}.",
+                                        "No phone number available for $dynamicSellerName.",
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }

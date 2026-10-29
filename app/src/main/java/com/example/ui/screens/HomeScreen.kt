@@ -31,9 +31,12 @@ import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -123,15 +126,29 @@ fun HomeScreen(
 
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val pullToRefreshState = rememberPullToRefreshState()
+
+    val triggerRefresh: () -> Unit = {
+        coroutineScope.launch {
+            isRefreshing = true
+            MarketplaceRepository.refreshBookSets()
+            kotlinx.coroutines.delay(400)
+            isRefreshing = false
+        }
+    }
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
-        onRefresh = {
-            coroutineScope.launch {
-                isRefreshing = true
-                MarketplaceRepository.refreshBookSets()
-                isRefreshing = false
-            }
+        onRefresh = triggerRefresh,
+        state = pullToRefreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pullToRefreshState,
+                isRefreshing = isRefreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = Color.White,
+                color = PrimaryPurple
+            )
         },
         modifier = modifier
             .fillMaxSize()
@@ -1188,7 +1205,7 @@ private fun HomeHeader(
                     icon = if (unreadNotifications > 0) Icons.Default.Notifications else Icons.Outlined.Notifications,
                     contentDescription = "Notifications",
                     tone = if (unreadNotifications > 0) GlassIconTone.PRIMARY_PURPLE else GlassIconTone.FROSTED_WHITE,
-                    size = 46.dp,
+                    size = 44.dp,
                     testTag = "notification_button"
                 )
                 if (unreadNotifications > 0) {
@@ -1478,16 +1495,19 @@ fun BookSetCardHorizontal(
                 .clip(RoundedCornerShape(18.dp))
                 .background(Color(0xFFE2E8F0))
         ) {
-            if (set.imageUrls.isNotEmpty()) {
+            val coverUrl = set.primaryCoverUrl
+            if (!coverUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = set.imageUrls.first(),
+                    model = coverUrl,
                     contentDescription = set.title,
                     contentScale = ContentScale.Crop,
+                    placeholder = painterResource(id = set.effectiveCoverDrawableRes),
+                    error = painterResource(id = set.effectiveCoverDrawableRes),
                     modifier = Modifier.fillMaxSize()
                 )
-            } else if (set.coverDrawableRes != null) {
+            } else {
                 Image(
-                    painter = painterResource(id = set.coverDrawableRes),
+                    painter = painterResource(id = set.effectiveCoverDrawableRes),
                     contentDescription = set.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -1627,16 +1647,19 @@ fun BookSetCardVertical(
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFFE2E8F0))
             ) {
-                if (set.imageUrls.isNotEmpty()) {
+                val coverUrl = set.primaryCoverUrl
+                if (!coverUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = set.imageUrls.first(),
+                        model = coverUrl,
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
+                        placeholder = painterResource(id = set.effectiveCoverDrawableRes),
+                        error = painterResource(id = set.effectiveCoverDrawableRes),
                         modifier = Modifier.fillMaxSize()
                     )
-                } else if (set.coverDrawableRes != null) {
+                } else {
                     Image(
-                        painter = painterResource(id = set.coverDrawableRes),
+                        painter = painterResource(id = set.effectiveCoverDrawableRes),
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -1688,17 +1711,18 @@ fun BookSetCardVertical(
                     color = TextMuted
                 )
 
+                val allUsers by MarketplaceRepository.allUsers.collectAsState()
+                val seller = allUsers.find { it.id == set.sellerId }
+                val sellerCollege = seller?.college?.takeIf { it.isNotBlank() } ?: set.college
+                val sellerAvatarUri = seller?.profilePhotoUri
+
                 Text(
-                    text = "🏫 ${set.college}",
+                    text = "🏫 $sellerCollege",
                     fontSize = 11.sp,
                     color = TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                val allUsers by MarketplaceRepository.allUsers.collectAsState()
-                val seller = allUsers.find { it.id == set.sellerId }
-                val sellerAvatarUri = seller?.profilePhotoUri
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

@@ -1,5 +1,7 @@
 package com.example.model
 
+import com.example.R
+
 enum class Technology(val id: String, val displayName: String, val shortName: String) {
     CIVIL("civil", "Civil Technology", "Civil"),
     ELECTRICAL("electrical", "Electrical Technology", "Electrical"),
@@ -217,3 +219,23 @@ data class AppTrafficStats(
     val peakHour: String = "No traffic yet",
     val newSignupsToday: Int = 0
 )
+
+/**
+ * Returns the primary cover photo URL for this book set, checking the set's image list
+ * followed by any uploaded images attached to individual included books.
+ */
+val BookSet.primaryCoverUrl: String?
+    get() = imageUrls.firstOrNull { it.isNotBlank() }
+        ?: includedBooks.flatMap { it.imageUris }.firstOrNull { it.isNotBlank() }
+
+/**
+ * Resolves the effective drawable resource for this book set, guaranteeing a technology-specific
+ * cover graphic fallback if no custom cover drawable was assigned.
+ */
+val BookSet.effectiveCoverDrawableRes: Int
+    get() = coverDrawableRes ?: when (technology) {
+        Technology.CIVIL, Technology.AIDT -> R.drawable.book_cover_civil_1789677775416
+        Technology.ELECTRICAL, Technology.TELECOM -> R.drawable.book_cover_elec_1789677789123
+        Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
+        Technology.CSE -> R.drawable.book_cover_cse_1789735549141
+    }

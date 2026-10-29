@@ -161,7 +161,6 @@ fun SellScreen(
     var newBookSubjectName by remember { mutableStateOf("") }
     var newBookAuthor by remember { mutableStateOf("") }
     var newBookImage1Uri by remember { mutableStateOf<String?>(null) }
-    var newBookImage2Uri by remember { mutableStateOf<String?>(null) }
     var isSavingBookImage by remember { mutableStateOf(false) }
 
     val bookImage1PickerLauncher = rememberLauncherForActivityResult(
@@ -173,22 +172,6 @@ fun SellScreen(
                 try {
                     val persistentUri = ImageStorageManager.saveImageLocally(context, uri)
                     newBookImage1Uri = persistentUri
-                } finally {
-                    isSavingBookImage = false
-                }
-            }
-        }
-    }
-
-    val bookImage2PickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            coroutineScope.launch {
-                isSavingBookImage = true
-                try {
-                    val persistentUri = ImageStorageManager.saveImageLocally(context, uri)
-                    newBookImage2Uri = persistentUri
                 } finally {
                     isSavingBookImage = false
                 }
@@ -478,23 +461,18 @@ fun SellScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            // Book Photo Thumbnails if uploaded
+                            // Book Photo Thumbnail
                             if (book.imageUris.isNotEmpty()) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    book.imageUris.take(2).forEach { imgUri ->
-                                        AsyncImage(
-                                            model = imgUri,
-                                            contentDescription = "Book photo",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(42.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
-                                        )
-                                    }
+                                book.imageUris.firstOrNull()?.let { imgUri ->
+                                    AsyncImage(
+                                        model = imgUri,
+                                        contentDescription = "Front cover",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                                    )
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
@@ -508,7 +486,7 @@ fun SellScreen(
                                 )
                                 val subtitle = buildString {
                                     if (book.author.isNotBlank()) append(book.author + " • ")
-                                    append(if (book.imageUris.isNotEmpty()) "${book.imageUris.size} Images" else "No photos")
+                                    append("Front cover")
                                 }
                                 Text(subtitle, fontSize = 12.sp, color = TextMuted)
                             }
@@ -855,13 +833,15 @@ fun SellScreen(
 
     // Add Book Dialog
     if (showAddBookDialog) {
+        var dialogError by remember { mutableStateOf<String?>(null) }
+
         AlertDialog(
             onDismissRequest = {
                 showAddBookDialog = false
                 newBookSubjectName = ""
                 newBookAuthor = ""
                 newBookImage1Uri = null
-                newBookImage2Uri = null
+                dialogError = null
             },
             title = {
                 Text(
@@ -878,8 +858,11 @@ fun SellScreen(
                 ) {
                     OutlinedTextField(
                         value = newBookSubjectName,
-                        onValueChange = { newBookSubjectName = it },
-                        label = { Text("Subject Name") },
+                        onValueChange = { 
+                            newBookSubjectName = it
+                            dialogError = null
+                        },
+                        label = { Text("Subject Name *") },
                         placeholder = { Text("e.g. Mathematics-IV / Programming in C") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
@@ -891,163 +874,139 @@ fun SellScreen(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
-                        text = "Book Photos (Upload up to 2)",
+                        text = "Book Photo (Mandatory)",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
                         color = TextPrimary
                     )
                     Text(
-                        text = "Front cover & inside condition",
+                        text = "Front cover",
                         fontSize = 11.sp,
                         color = TextMuted
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    // Single Mandatory Image Box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(115.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (newBookImage1Uri != null) Color(0xFFF8FAFC) else PrimaryPurpleLight.copy(alpha = 0.25f))
+                            .border(
+                                1.5.dp,
+                                if (dialogError != null && newBookImage1Uri == null) Color(0xFFEF4444) else if (newBookImage1Uri != null) Color(0xFFCBD5E1) else PrimaryPurple.copy(alpha = 0.4f),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable {
+                                dialogError = null
+                                bookImage1PickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        // Image 1 Box
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(95.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFFF8FAFC))
-                                .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
-                                .clickable {
-                                    bookImage1PickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (newBookImage1Uri != null) {
-                                AsyncImage(
-                                    model = newBookImage1Uri,
-                                    contentDescription = "Photo 1",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                        if (newBookImage1Uri != null) {
+                            AsyncImage(
+                                model = newBookImage1Uri,
+                                contentDescription = "Front cover",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            IconButton(
+                                onClick = { newBookImage1Uri = null },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(26.dp)
+                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove photo",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                IconButton(
-                                    onClick = { newBookImage1Uri = null },
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(4.dp)
-                                        .size(24.dp)
-                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove photo 1",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.AddPhotoAlternate,
-                                        contentDescription = null,
-                                        tint = PrimaryPurple,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Photo 1",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = TextSecondary
-                                    )
-                                }
+                            }
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AddPhotoAlternate,
+                                    contentDescription = null,
+                                    tint = PrimaryPurple,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Upload Front Cover",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextSecondary
+                                )
+                                Text(
+                                    text = "Single photo required",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
                             }
                         }
+                    }
 
-                        // Image 2 Box
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(95.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFFF8FAFC))
-                                .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
-                                .clickable {
-                                    bookImage2PickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
+                    if (isSavingBookImage) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (newBookImage2Uri != null) {
-                                AsyncImage(
-                                    model = newBookImage2Uri,
-                                    contentDescription = "Photo 2",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                IconButton(
-                                    onClick = { newBookImage2Uri = null },
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(4.dp)
-                                        .size(24.dp)
-                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove photo 2",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.AddPhotoAlternate,
-                                        contentDescription = null,
-                                        tint = PrimaryPurple,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Photo 2",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = TextSecondary
-                                    )
-                                }
-                            }
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = PrimaryPurple
+                            )
+                            Text("Compressing photo...", fontSize = 11.sp, color = PrimaryPurple)
                         }
+                    }
+
+                    if (dialogError != null) {
+                        Text(
+                            text = dialogError!!,
+                            color = Color(0xFFEF4444),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             },
             confirmButton = {
+                val isFormValid = newBookSubjectName.isNotBlank() && !newBookImage1Uri.isNullOrBlank()
                 GlassButton(
                     text = "Add Book",
                     onClick = {
-                        if (newBookSubjectName.isNotBlank()) {
-                            val imgs = listOfNotNull(newBookImage1Uri, newBookImage2Uri)
-                            val added = IncludedBook(
-                                id = "b_" + (includedBooks.size + 1) + "_" + System.currentTimeMillis(),
-                                setId = "",
-                                bookName = newBookSubjectName.trim(),
-                                subject = newBookSubjectName.trim(),
-                                author = newBookAuthor.trim(),
-                                imageUris = imgs
-                            )
-                            includedBooks = includedBooks + added
-                            newBookSubjectName = ""
-                            newBookAuthor = ""
-                            newBookImage1Uri = null
-                            newBookImage2Uri = null
-                            showAddBookDialog = false
+                        if (newBookSubjectName.isBlank()) {
+                            dialogError = "Subject name is required."
+                            return@GlassButton
                         }
+                        if (newBookImage1Uri.isNullOrBlank()) {
+                            dialogError = "Front cover photo is mandatory for each subject."
+                            return@GlassButton
+                        }
+                        val added = IncludedBook(
+                            id = "b_" + (includedBooks.size + 1) + "_" + System.currentTimeMillis(),
+                            setId = "",
+                            bookName = newBookSubjectName.trim(),
+                            subject = newBookSubjectName.trim(),
+                            author = newBookAuthor.trim(),
+                            imageUris = listOf(newBookImage1Uri!!)
+                        )
+                        includedBooks = includedBooks + added
+                        newBookSubjectName = ""
+                        newBookAuthor = ""
+                        newBookImage1Uri = null
+                        dialogError = null
+                        showAddBookDialog = false
                     },
+                    enabled = isFormValid,
                     height = 42.dp,
                     testTag = "btn_dialog_add_book"
                 )
@@ -1060,7 +1019,7 @@ fun SellScreen(
                         newBookSubjectName = ""
                         newBookAuthor = ""
                         newBookImage1Uri = null
-                        newBookImage2Uri = null
+                        dialogError = null
                     },
                     height = 42.dp,
                     textColor = TextSecondary,

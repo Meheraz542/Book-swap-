@@ -508,10 +508,20 @@ fun ChatScreen(
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(Color(0xFFE2E8F0))
                             ) {
-                                if (referencedSet.coverDrawableRes != null) {
+                                val coverUrl = referencedSet.primaryCoverUrl
+                                if (!coverUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = coverUrl,
+                                        contentDescription = referencedSet.title,
+                                        contentScale = ContentScale.Crop,
+                                        placeholder = painterResource(id = referencedSet.effectiveCoverDrawableRes),
+                                        error = painterResource(id = referencedSet.effectiveCoverDrawableRes),
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
                                     Image(
-                                        painter = painterResource(id = referencedSet.coverDrawableRes),
-                                        contentDescription = null,
+                                        painter = painterResource(id = referencedSet.effectiveCoverDrawableRes),
+                                        contentDescription = referencedSet.title,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )

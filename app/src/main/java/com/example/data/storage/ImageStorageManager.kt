@@ -17,8 +17,9 @@ object ImageStorageManager {
     private const val AVATARS_DIR = "marketplace_avatars"
 
     /**
-     * Persistently saves an image from a temporary content Uri to app internal storage.
-     * Prevents security permission revocation when the app process is restarted.
+     * Persistently saves an image from a temporary content Uri to app internal storage with automatic compression.
+     * Downscales the image to a maximum dimension of 1024px and compresses to 80% JPEG quality,
+     * drastically reducing file size while preserving textbook legibility and crisp visual quality.
      */
     suspend fun saveImageLocally(context: Context, sourceUri: Uri): String = withContext(Dispatchers.IO) {
         try {
@@ -27,40 +28,58 @@ object ImageStorageManager {
                 dir.mkdirs()
             }
 
-            val fileName = "book_${UUID.randomUUID()}.jpg"
+            val fileName = "book_${UUID.randomUUID()}_${System.currentTimeMillis()}.jpg"
             val targetFile = File(dir, fileName)
 
             context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
                 // Decode bounds first to prevent OutOfMemory on huge camera pictures
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 val tempBytes = inputStream.readBytes()
-                BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, options)
+                val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, boundsOptions)
 
-                val sampleSize = calculateInSampleSize(options, reqWidth = 1200, reqHeight = 1200)
+                val reqMaxDim = 1024
+                var sampleSize = 1
+                val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+                while (maxDim / (sampleSize * 2) >= reqMaxDim) {
+                    sampleSize *= 2
+                }
+
                 val decodeOptions = BitmapFactory.Options().apply {
                     inSampleSize = sampleSize
                 }
 
-                val bitmap = BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, decodeOptions)
+                val decodedBitmap = BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, decodeOptions)
                     ?: throw IllegalStateException("Failed to decode bitmap from stream")
 
-                FileOutputStream(targetFile).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                // Fine downscale if decoded dimensions still exceed target max dimension
+                val finalBitmap = if (decodedBitmap.width > reqMaxDim || decodedBitmap.height > reqMaxDim) {
+                    val ratio = minOf(reqMaxDim.toFloat() / decodedBitmap.width, reqMaxDim.toFloat() / decodedBitmap.height)
+                    val targetW = (decodedBitmap.width * ratio).toInt().coerceAtLeast(1)
+                    val targetH = (decodedBitmap.height * ratio).toInt().coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(decodedBitmap, targetW, targetH, true).also {
+                        if (it != decodedBitmap) decodedBitmap.recycle()
+                    }
+                } else {
+                    decodedBitmap
                 }
-                bitmap.recycle()
+
+                FileOutputStream(targetFile).use { out ->
+                    finalBitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                }
+                finalBitmap.recycle()
             }
 
             val persistentUri = Uri.fromFile(targetFile).toString()
-            Log.d(TAG, "Successfully persisted image to $persistentUri")
+            Log.d(TAG, "Successfully compressed and saved image: $persistentUri (size: ${targetFile.length() / 1024} KB)")
             persistentUri
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving local image, falling back to original uri", e)
+            Log.e(TAG, "Error saving compressed local image, falling back to original uri", e)
             sourceUri.toString()
         }
     }
 
     /**
-     * Persistently saves a user avatar image.
+     * Persistently saves and compresses a user avatar image to max 512px with 80% JPEG quality.
      */
     suspend fun saveAvatarLocally(context: Context, sourceUri: Uri): String = withContext(Dispatchers.IO) {
         try {
@@ -69,46 +88,50 @@ object ImageStorageManager {
                 dir.mkdirs()
             }
 
-            val fileName = "avatar_${UUID.randomUUID()}.jpg"
+            val timestamp = System.currentTimeMillis()
+            val fileName = "avatar_${UUID.randomUUID()}_$timestamp.jpg"
             val targetFile = File(dir, fileName)
 
             context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
                 val bytes = inputStream.readBytes()
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
 
-                val sampleSize = calculateInSampleSize(options, reqWidth = 512, reqHeight = 512)
+                val reqMaxDim = 512
+                var sampleSize = 1
+                val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+                while (maxDim / (sampleSize * 2) >= reqMaxDim) {
+                    sampleSize *= 2
+                }
+
                 val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+                val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
                     ?: throw IllegalStateException("Could not decode avatar")
 
-                FileOutputStream(targetFile).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                val finalBitmap = if (decoded.width > reqMaxDim || decoded.height > reqMaxDim) {
+                    val ratio = minOf(reqMaxDim.toFloat() / decoded.width, reqMaxDim.toFloat() / decoded.height)
+                    val targetW = (decoded.width * ratio).toInt().coerceAtLeast(1)
+                    val targetH = (decoded.height * ratio).toInt().coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(decoded, targetW, targetH, true).also {
+                        if (it != decoded) decoded.recycle()
+                    }
+                } else {
+                    decoded
                 }
-                bitmap.recycle()
+
+                FileOutputStream(targetFile).use { out ->
+                    finalBitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                }
+                finalBitmap.recycle()
             }
 
-            Uri.fromFile(targetFile).toString()
+            // Include timestamp query parameter to bust Coil cache immediately
+            val uriWithCacheBuster = "${Uri.fromFile(targetFile)}?t=$timestamp"
+            Log.d(TAG, "Compressed avatar saved to $uriWithCacheBuster (size: ${targetFile.length() / 1024} KB)")
+            uriWithCacheBuster
         } catch (e: Exception) {
             Log.e(TAG, "Error saving local avatar", e)
             sourceUri.toString()
         }
-    }
-
-    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-        val height = options.outHeight
-        val width = options.outWidth
-        var inSampleSize = 1
-
-        if (height > reqHeight || width > reqWidth) {
-            val halfHeight = height / 2
-            val halfWidth = width / 2
-
-            while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
-                inSampleSize *= 2
-            }
-        }
-        return inSampleSize
     }
 }

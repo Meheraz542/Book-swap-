@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Engineering
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.MarketplaceRepository
 import com.example.model.*
 import com.example.ui.components.*
@@ -496,6 +498,11 @@ private fun SearchResultCard(
     onBookmarkClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val allUsers by MarketplaceRepository.allUsers.collectAsState()
+    val seller = allUsers.find { it.id == set.sellerId }
+    val dynamicSellerName = seller?.name?.takeIf { it.isNotBlank() } ?: set.sellerName
+    val dynamicCollege = seller?.college?.takeIf { it.isNotBlank() } ?: set.college
+    val sellerAvatarUri = seller?.profilePhotoUri
     val estimatedMrp = (set.totalPrice * 2.1).toInt()
 
     GlassCard(
@@ -516,9 +523,19 @@ private fun SearchResultCard(
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFFE2E8F0))
             ) {
-                if (set.coverDrawableRes != null) {
+                val coverUrl = set.primaryCoverUrl
+                if (!coverUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = coverUrl,
+                        contentDescription = set.title,
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(id = set.effectiveCoverDrawableRes),
+                        error = painterResource(id = set.effectiveCoverDrawableRes),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
                     Image(
-                        painter = painterResource(id = set.coverDrawableRes),
+                        painter = painterResource(id = set.effectiveCoverDrawableRes),
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -571,14 +588,56 @@ private fun SearchResultCard(
                 )
 
                 Text(
-                    text = "🏫 ${set.college}",
+                    text = "🏫 $dynamicCollege",
                     fontSize = 11.sp,
                     color = TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(16.dp),
+                        shape = CircleShape,
+                        color = Color(0xFFE2E8F0)
+                    ) {
+                        if (!sellerAvatarUri.isNullOrBlank()) {
+                            AsyncImage(
+                                model = sellerAvatarUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else if (seller?.profilePhotoRes != null) {
+                            Image(
+                                painter = painterResource(id = seller.profilePhotoRes!!),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = null,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.padding(2.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = dynamicSellerName,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
                     verticalAlignment = Alignment.Bottom,

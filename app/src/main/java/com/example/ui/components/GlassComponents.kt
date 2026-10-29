@@ -1439,20 +1439,57 @@ fun PopAnimatedConfirmationDialog(
                                     onClick = onDismissRequest,
                                     textColor = TextSecondary,
                                     modifier = Modifier.weight(1f),
-                                    height = 46.dp,
+                                    height = 48.dp,
                                     testTag = "btn_popup_cancel"
                                 )
 
-                                GlassButton(
-                                    text = confirmButtonText,
-                                    onClick = onConfirm,
-                                    gradient = Brush.horizontalGradient(
-                                        listOf(confirmButtonColor, confirmButtonColor.copy(alpha = 0.85f))
-                                    ),
-                                    modifier = Modifier.weight(1.3f),
-                                    height = 46.dp,
-                                    testTag = testTagConfirm
+                                val confirmInteractionSource = remember { MutableInteractionSource() }
+                                val isConfirmPressed by confirmInteractionSource.collectIsPressedAsState()
+                                val confirmScale by animateFloatAsState(
+                                    targetValue = if (isConfirmPressed) 0.94f else 1f,
+                                    label = "fluffyConfirmScale"
                                 )
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1.35f)
+                                        .scale(confirmScale)
+                                        .height(48.dp)
+                                        .shadow(
+                                            elevation = 8.dp,
+                                            shape = RoundedCornerShape(24.dp),
+                                            ambientColor = confirmButtonColor.copy(alpha = 0.40f),
+                                            spotColor = confirmButtonColor.copy(alpha = 0.55f)
+                                        )
+                                        .background(
+                                            color = confirmButtonColor,
+                                            shape = RoundedCornerShape(24.dp)
+                                        )
+                                        .border(
+                                            width = 1.2.dp,
+                                            brush = Brush.verticalGradient(
+                                                listOf(
+                                                    Color.White.copy(alpha = 0.45f),
+                                                    Color.Transparent
+                                                )
+                                            ),
+                                            shape = RoundedCornerShape(24.dp)
+                                        )
+                                        .clickable(
+                                            interactionSource = confirmInteractionSource,
+                                            indication = ripple(color = Color.White)
+                                        ) { onConfirm() }
+                                        .testTag(testTagConfirm),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = confirmButtonText,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.3.sp
+                                    )
+                                }
                             }
                         }
                     }

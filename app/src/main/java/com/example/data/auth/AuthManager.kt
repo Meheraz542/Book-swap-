@@ -39,6 +39,9 @@ class AuthManager(
         if (trimmedEmail.isBlank()) {
             return@withContext AuthResult.Error("Email address cannot be blank.")
         }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
+            return@withContext AuthResult.Error("Please enter a valid email address.")
+        }
         if (password.isBlank()) {
             return@withContext AuthResult.Error("Password cannot be blank.")
         }
@@ -85,6 +88,10 @@ class AuthManager(
                         .whereEqualTo("email", trimmedEmail).get().await()
                     val doc = snap.documents.firstOrNull()
                     if (doc != null) {
+                        val storedHash = doc.getString("passwordHash") ?: ""
+                        if (storedHash.isNotBlank() && storedHash != hash) {
+                            return@withContext AuthResult.Error("Incorrect password. Please verify your password.")
+                        }
                         val name = doc.getString("name") ?: "Student User"
                         val phone = doc.getString("phone") ?: "01712-345678"
                         val college = doc.getString("college") ?: "Feni Polytechnic Institute"
@@ -97,7 +104,7 @@ class AuthManager(
                             id = doc.getString("id") ?: doc.id,
                             name = name,
                             email = trimmedEmail,
-                            passwordHash = hash,
+                            passwordHash = if (storedHash.isNotBlank()) storedHash else hash,
                             phone = phone,
                             college = college,
                             technologyId = techId,
@@ -117,27 +124,7 @@ class AuthManager(
             }
 
             if (userEntity == null) {
-                val displayName = trimmedEmail.substringBefore("@")
-                    .replace(".", " ")
-                    .split(" ")
-                    .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-                val newStudent = UserEntity(
-                    id = "user_" + UUID.randomUUID().toString().take(8),
-                    name = displayName.ifBlank { "Student User" },
-                    email = trimmedEmail,
-                    passwordHash = hash,
-                    phone = "01712-345678",
-                    college = "Feni Polytechnic Institute",
-                    technologyId = Technology.CIVIL.id,
-                    semesterId = Semester.SEM_1.id,
-                    profilePhotoRes = null,
-                    profilePhotoUri = null,
-                    role = "USER",
-                    accountStatus = "ACTIVE",
-                    isCurrentSession = true
-                )
-                userDao.insertUser(newStudent)
-                userEntity = newStudent
+                return@withContext AuthResult.Error("No registered account found with this email. Please sign up first.")
             } else {
                 userDao.updateUser(userEntity.copy(isCurrentSession = true))
             }
@@ -259,6 +246,18 @@ class AuthManager(
             return@withContext AuthResult.Error("An account with this email already exists. Please switch to the Sign In tab.")
         }
 
+        if (firestoreManager != null) {
+            try {
+                val snap = firestoreManager.firestore.collection("users")
+                    .whereEqualTo("email", trimmedEmail).get().await()
+                if (!snap.isEmpty) {
+                    return@withContext AuthResult.Error("An account with this email already exists. Please switch to the Sign In tab.")
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Firestore existing email check: ${e.message}")
+            }
+        }
+
         val isAdmin = trimmedEmail.equals("mdmaheraz65@gmail.com", ignoreCase = true)
         val newUserId = if (isAdmin) "admin_master_1" else ("user_" + UUID.randomUUID().toString().replace("-", "").take(12))
 
@@ -283,9 +282,9 @@ class AuthManager(
 
         val profile = newEntity.toUserProfile()
 
-        // Sync profile to Cloud Firestore so it is visible across the app and to Admin
+        // Sync profile and secure credentials to Cloud Firestore so it is visible across the app and to Admin
         try {
-            firestoreManager?.saveUserProfile(profile)
+            firestoreManager?.saveUserProfile(profile, passwordHash = newEntity.passwordHash)
             Log.d(tag, "User profile registered and synced to Cloud Firestore: ${profile.id}")
         } catch (e: Exception) {
             Log.w(tag, "Firestore profile sync note on signup: ${e.message}")
