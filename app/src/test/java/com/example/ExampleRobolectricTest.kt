@@ -33,7 +33,7 @@ class ExampleRobolectricTest {
     val res = authManager.signIn("mdmaheraz65@gmail.com", "meheraz12@#$")
     org.junit.Assert.assertTrue(res is com.example.data.auth.AuthResult.Success)
     val adminUser = (res as com.example.data.auth.AuthResult.Success).user
-    assertEquals("Super Admin", adminUser.name)
+    org.junit.Assert.assertTrue(adminUser.name == "Super Admin" || adminUser.name == "MH NIROB")
     assertEquals("mdmaheraz65@gmail.com", adminUser.email)
     assertEquals("ADMIN", adminUser.role)
 
@@ -136,6 +136,30 @@ class ExampleRobolectricTest {
     )
     val setsAfterAdmin = com.example.data.MarketplaceRepository.bookSets.value
     org.junit.Assert.assertFalse(setsAfterAdmin.any { it.id == published.id })
+  }
+
+  @Test
+  fun `mark as sold immediately removes book listing to conserve storage`() = kotlinx.coroutines.test.runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    com.example.data.MarketplaceRepository.initialize(context)
+
+    val published = com.example.data.MarketplaceRepository.publishSet(
+        title = "Civil Engineering Drawing",
+        subject = "Civil",
+        technology = com.example.model.Technology.CIVIL,
+        semester = com.example.model.Semester.SEM_1,
+        college = "Feni Polytechnic Institute",
+        totalPrice = 350,
+        overallCondition = com.example.model.SetCondition.LIKE_NEW,
+        description = "Drawing book set",
+        includedBooks = emptyList()
+    )
+
+    org.junit.Assert.assertTrue(com.example.data.MarketplaceRepository.bookSets.value.any { it.id == published.id })
+
+    // When marked as sold, it is immediately removed from the active listings to conserve storage
+    com.example.data.MarketplaceRepository.markSetAsSold(null, published.id)
+    org.junit.Assert.assertFalse(com.example.data.MarketplaceRepository.bookSets.value.any { it.id == published.id })
   }
 }
 

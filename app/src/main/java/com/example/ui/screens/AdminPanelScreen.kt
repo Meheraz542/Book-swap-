@@ -500,7 +500,7 @@ fun AdminPanelScreen(
                             },
                             onRemove = { MarketplaceRepository.adminRemoveSet(set.id) },
                             onRestore = { MarketplaceRepository.adminRestoreSet(set.id) },
-                            onDelete = { MarketplaceRepository.adminDeleteSet(set.id) }
+                            onDelete = { MarketplaceRepository.deleteSet(set.id, requestingUserId = "admin_master_1", requestingUserRole = "ADMIN") }
                         )
                     }
                 }

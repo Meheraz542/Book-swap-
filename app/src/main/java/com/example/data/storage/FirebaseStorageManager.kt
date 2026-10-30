@@ -82,6 +82,64 @@ object FirebaseStorageManager {
     }
 
     /**
+     * Compresses and uploads book listing photos to Firebase Cloud Storage under book_images/{setId}_{index}_{timestamp}.jpg.
+     * Generates a persistent local copy as fallback to guarantee availability.
+     */
+    suspend fun compressAndUploadBookImage(
+        context: Context,
+        setId: String,
+        photoIndex: Int,
+        sourceUri: Uri
+    ): String = withContext(Dispatchers.IO) {
+        val timestamp = System.currentTimeMillis()
+        val compressedBytes = compressImage(context, sourceUri, maxDimension = 1024, quality = 80)
+
+        val localPersistentUri = try {
+            val dir = File(context.filesDir, "marketplace_books").apply { if (!exists()) mkdirs() }
+            val localFile = File(dir, "book_${setId}_${photoIndex}_$timestamp.jpg")
+            if (compressedBytes != null) {
+                FileOutputStream(localFile).use { it.write(compressedBytes) }
+            } else {
+                context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                    FileOutputStream(localFile).use { output -> input.copyTo(output) }
+                }
+            }
+            "${Uri.fromFile(localFile)}?t=$timestamp"
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist local book image copy", e)
+            sourceUri.toString()
+        }
+
+        if (compressedBytes == null) {
+            Log.w(TAG, "Book image compression returned null, using local URI")
+            return@withContext localPersistentUri
+        }
+
+        try {
+            val storage = try {
+                FirebaseStorage.getInstance()
+            } catch (ex: Exception) {
+                FirebaseStorage.getInstance("gs://studio-4383603118-a2874.firebasestorage.app")
+            }
+            val storageRef = storage.reference.child("book_images/${setId}_${photoIndex}_$timestamp.jpg")
+            val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+                .setContentType("image/jpeg")
+                .setCustomMetadata("setId", setId)
+                .setCustomMetadata("updatedAt", timestamp.toString())
+                .build()
+
+            storageRef.putBytes(compressedBytes, metadata).await()
+            val downloadUrl = storageRef.downloadUrl.await().toString()
+            val finalUrl = if (downloadUrl.contains("?")) "$downloadUrl&t=$timestamp" else "$downloadUrl?t=$timestamp"
+            Log.d(TAG, "Successfully uploaded book image to Firebase Storage: $finalUrl")
+            finalUrl
+        } catch (e: Exception) {
+            Log.w(TAG, "Firebase Storage book image upload failed, falling back to local URI: ${e.message}")
+            localPersistentUri
+        }
+    }
+
+    /**
      * Compresses and downscales a bitmap locally to minimize network bandwidth.
      */
     fun compressImage(context: Context, sourceUri: Uri, maxDimension: Int = 512, quality: Int = 80): ByteArray? {

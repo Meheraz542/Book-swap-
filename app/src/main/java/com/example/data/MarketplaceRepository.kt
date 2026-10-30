@@ -28,6 +28,7 @@ import com.example.data.storage.FirebaseStorageManager
 
 object MarketplaceRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var appContext: Context? = null
     private var database: AppDatabase? = null
     private var authManager: AuthManager? = null
     private var emailOtpManager: EmailOtpManager? = null
@@ -200,6 +201,7 @@ object MarketplaceRepository {
     }
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
         val db = AppDatabase.getInstance(context)
         database = db
         val firestore = FirebaseFirestoreManager(context)
@@ -350,6 +352,11 @@ object MarketplaceRepository {
                                     val remoteIds = firestoreConvs.map { it.id }.toSet()
                                     val mergedRemote = firestoreConvs.map { remoteConv ->
                                         val existing = currentMap[remoteConv.id]
+                                        val otherId = remoteConv.getOtherUserId(user.id)
+                                        val otherProfile = _userProfileCache[otherId] ?: _allUsers.value.find { it.id == otherId }
+                                        val buyerProfile = _userProfileCache[remoteConv.buyerId] ?: _allUsers.value.find { it.id == remoteConv.buyerId }
+                                        val sellerProfile = _userProfileCache[remoteConv.sellerId] ?: _allUsers.value.find { it.id == remoteConv.sellerId }
+
                                         val preservedMessages = if (remoteConv.messages.isNotEmpty()) {
                                             val remoteMsgIds = remoteConv.messages.map { it.id }.toSet()
                                             val pendingLocal = (existing?.messages ?: emptyList()).filter { it.id !in remoteMsgIds }
@@ -357,7 +364,19 @@ object MarketplaceRepository {
                                         } else {
                                             existing?.messages ?: emptyList()
                                         }
-                                        remoteConv.copy(messages = preservedMessages)
+
+                                        remoteConv.copy(
+                                            buyerName = buyerProfile?.name?.takeIf { it.isNotBlank() } ?: remoteConv.buyerName,
+                                            buyerCollege = buyerProfile?.college?.takeIf { it.isNotBlank() } ?: remoteConv.buyerCollege,
+                                            buyerAvatarUri = buyerProfile?.profilePhotoUri ?: remoteConv.buyerAvatarUri,
+                                            sellerName = sellerProfile?.name?.takeIf { it.isNotBlank() } ?: remoteConv.sellerName,
+                                            sellerCollege = sellerProfile?.college?.takeIf { it.isNotBlank() } ?: remoteConv.sellerCollege,
+                                            sellerAvatarUri = sellerProfile?.profilePhotoUri ?: remoteConv.sellerAvatarUri,
+                                            otherUserName = otherProfile?.name?.takeIf { it.isNotBlank() } ?: remoteConv.otherUserName,
+                                            otherUserCollege = otherProfile?.college?.takeIf { it.isNotBlank() } ?: remoteConv.otherUserCollege,
+                                            otherUserAvatarUri = otherProfile?.profilePhotoUri ?: remoteConv.otherUserAvatarUri,
+                                            messages = preservedMessages
+                                        )
                                     }
                                     val localOnlyConvs = currentList.filter { it.id !in remoteIds }
                                     (mergedRemote + localOnlyConvs).sortedByDescending { it.updatedAt }
@@ -650,6 +669,55 @@ object MarketplaceRepository {
             scope.launch(Dispatchers.IO) {
                 try {
                     fs.publishBookSet(newSet)
+
+                    // Asynchronously upload local photos to Firebase Storage and update listing
+                    val context = appContext
+                    if (context != null) {
+                        val hasLocalPhotos = imageUrls.any { it.startsWith("file:") || it.startsWith("content:") } ||
+                                includedBooks.any { b -> b.imageUris.any { it.startsWith("file:") || it.startsWith("content:") } }
+
+                        if (hasLocalPhotos) {
+                            val uploadedCovers = imageUrls.mapIndexed { idx, url ->
+                                if (url.startsWith("file:") || url.startsWith("content:")) {
+                                    try {
+                                        FirebaseStorageManager.compressAndUploadBookImage(
+                                            context, newId, idx, android.net.Uri.parse(url)
+                                        )
+                                    } catch (_: Exception) { url }
+                                } else url
+                            }
+
+                            val uploadedBooks = includedBooks.mapIndexed { bIdx, book ->
+                                val uploadedUris = book.imageUris.mapIndexed { imgIdx, u ->
+                                    if (u.startsWith("file:") || u.startsWith("content:")) {
+                                        try {
+                                            FirebaseStorageManager.compressAndUploadBookImage(
+                                                context, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
+                                            )
+                                        } catch (_: Exception) { u }
+                                    } else u
+                                }
+                                book.copy(imageUris = uploadedUris)
+                            }
+
+                            val updatedWithRemoteUrls = newSet.copy(
+                                imageUrls = uploadedCovers,
+                                includedBooks = uploadedBooks
+                            )
+
+                            _bookSets.update { list ->
+                                list.map { if (it.id == newId) updatedWithRemoteUrls else it }
+                            }
+
+                            database?.bookSetDao()?.insertBookSetWithBooks(
+                                updatedWithRemoteUrls.toEntity(),
+                                uploadedBooks.map { it.toEntity(newId) }
+                            )
+
+                            fs.publishBookSet(updatedWithRemoteUrls)
+                            Log.d("MarketplaceRepo", "Book photos uploaded to Storage & synced to Firestore for $newId")
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e("MarketplaceRepo", "Failed to sync bookSet to Firestore", e)
                 }
@@ -721,8 +789,28 @@ object MarketplaceRepository {
         Log.d("MarketplaceRepo", "Attaching listenMessages for $conversationId (currentUserId=$currentUserId)")
         return fs.listenMessages(conversationId, currentUserId) { liveMsgs ->
             Log.d("MarketplaceRepo", "listenMessages callback: received ${liveMsgs.size} messages for conversation $conversationId")
-            val liveIds = liveMsgs.map { it.id }.toSet()
-            var currentMergedMessages = liveMsgs
+            val enrichedLiveMsgs = liveMsgs.map { msg ->
+                val cached = _userProfileCache[msg.senderId] ?: _allUsers.value.find { it.id == msg.senderId }
+                if (cached != null) {
+                    msg.copy(
+                        senderName = cached.name.ifBlank { msg.senderName },
+                        senderAvatarUri = cached.profilePhotoUri ?: msg.senderAvatarUri,
+                        senderAvatarRes = cached.profilePhotoRes ?: msg.senderAvatarRes
+                    )
+                } else {
+                    if (msg.senderId.isNotBlank()) {
+                        scope.launch {
+                            val fetched = getUserProfileAsync(msg.senderId)
+                            if (fetched != null) {
+                                propagateUserProfileUpdates(fetched)
+                            }
+                        }
+                    }
+                    msg
+                }
+            }
+            val liveIds = enrichedLiveMsgs.map { it.id }.toSet()
+            var currentMergedMessages = enrichedLiveMsgs
             val now = System.currentTimeMillis()
 
             _conversations.update { list ->
@@ -730,10 +818,10 @@ object MarketplaceRepository {
                     if (conv.id == conversationId) {
                         // Preserve in-flight local messages that haven't appeared in remote yet
                         val pendingLocal = conv.messages.filter { it.id !in liveIds }
-                        val merged = (liveMsgs + pendingLocal)
+                        val merged = (enrichedLiveMsgs + pendingLocal)
                         currentMergedMessages = merged
                         val latestTime = merged.lastOrNull()?.timestamp ?: conv.timestamp
-                        val shouldRevive = liveMsgs.size > conv.messages.size
+                        val shouldRevive = enrichedLiveMsgs.size > conv.messages.size
                         conv.copy(
                             messages = merged,
                             lastMessage = merged.lastOrNull()?.text ?: conv.lastMessage,
@@ -748,7 +836,7 @@ object MarketplaceRepository {
             onMessagesUpdated(currentMergedMessages)
             database?.let { db ->
                 scope.launch(Dispatchers.IO) {
-                    for (msg in liveMsgs) {
+                    for (msg in enrichedLiveMsgs) {
                         db.chatDao().insertMessage(msg.toEntity(conversationId))
                     }
                 }
@@ -1018,22 +1106,26 @@ object MarketplaceRepository {
         }
     }
 
-    // Physical Exchange Completed -> Mark Set As SOLD
+    // Physical Exchange Completed -> Mark Set As SOLD & Immediately Remove from database to conserve storage
     fun markSetAsSold(dealId: String?, setId: String) {
+        val set = _bookSets.value.find { it.id == setId }
+        // Immediately remove the book listing from active memory to conserve storage
         _bookSets.update { list ->
-            list.map { if (it.id == setId) it.copy(status = SetStatus.SOLD) else it }
+            list.filter { it.id != setId }
+        }
+        _savedSetIds.update { setIds ->
+            setIds - setId
         }
         if (dealId != null) {
             _megaDeals.update { list ->
                 list.map { if (it.dealId == dealId) it.copy(status = MegaDealStatus.COMPLETED) else it }
             }
         }
-        val set = _bookSets.value.find { it.id == setId }
         val notif = AppNotification(
             id = "notif_" + UUID.randomUUID().toString().take(6),
             type = "SET_SOLD",
             title = "Book Set Sold! 🎓",
-            message = "Physical exchange completed for '${set?.title ?: "Set"}'. Marked as SOLD.",
+            message = "Physical exchange completed for '${set?.title ?: "Book set"}'. Removed from database to conserve storage.",
             timeAgo = "Just now",
             relatedSetId = setId
         )
@@ -1041,11 +1133,20 @@ object MarketplaceRepository {
 
         database?.let { db ->
             scope.launch(Dispatchers.IO) {
-                db.bookSetDao().updateBookSetStatus(setId, SetStatus.SOLD.name)
+                // Permanently remove from Room SQLite to conserve storage
+                db.bookSetDao().deleteBookSet(setId)
                 if (dealId != null) {
                     db.megaDealDao().updateMegaDealStatus(dealId, MegaDealStatus.COMPLETED.name)
                 }
                 db.notificationDao().insertNotification(notif.toEntity())
+            }
+        }
+
+        firestoreManager?.let { fs ->
+            scope.launch(Dispatchers.IO) {
+                // Permanently remove from Cloud Firestore to conserve storage
+                fs.deleteBookSet(setId)
+                Log.d("MarketplaceRepo", "Mark as sold: Set $setId removed from database to conserve storage.")
             }
         }
     }
@@ -1114,6 +1215,19 @@ object MarketplaceRepository {
                         otherUserName = updated.name,
                         otherUserCollege = updated.college,
                         otherUserAvatarUri = updated.profilePhotoUri
+                    )
+                }
+                if (c.messages.any { it.senderId == updated.id }) {
+                    c = c.copy(
+                        messages = c.messages.map { msg ->
+                            if (msg.senderId == updated.id) {
+                                msg.copy(
+                                    senderName = updated.name.ifBlank { msg.senderName },
+                                    senderAvatarUri = updated.profilePhotoUri ?: msg.senderAvatarUri,
+                                    senderAvatarRes = updated.profilePhotoRes ?: msg.senderAvatarRes
+                                )
+                            } else msg
+                        }
                     )
                 }
                 c
@@ -1582,6 +1696,9 @@ object MarketplaceRepository {
         _bookSets.update { list ->
             list.filter { it.id != setId }
         }
+        _savedSetIds.update { setIds ->
+            setIds - setId
+        }
         scope.launch(Dispatchers.IO) {
             database?.bookSetDao()?.deleteBookSet(setId)
             firestoreManager?.deleteBookSet(setId)
@@ -1675,14 +1792,21 @@ object MarketplaceRepository {
 
     fun deleteSet(setId: String, requestingUserId: String? = null, requestingUserRole: String? = null) {
         val user = _currentUser.value
-        val userId = requestingUserId ?: user.id
-        val role = requestingUserRole ?: user.role
-        val email = user.email
+        val effectiveUserId = requestingUserId ?: user.id
+        val effectiveRole = requestingUserRole ?: user.role
+        val effectiveEmail = user.email
         val target = _bookSets.value.find { it.id == setId }
-        val isCreator = target != null && (target.sellerId == userId || (target.sellerEmail.isNotBlank() && target.sellerEmail.equals(email, ignoreCase = true)))
-        val isAdmin = role == "ADMIN" || email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
+        val isCreator = target != null && (
+            target.sellerId == effectiveUserId ||
+            (target.sellerEmail.isNotBlank() && target.sellerEmail.equals(effectiveEmail, ignoreCase = true))
+        )
+        val isAdmin = effectiveRole == "ADMIN" ||
+            effectiveEmail.equals("mdmaheraz65@gmail.com", ignoreCase = true) ||
+            effectiveUserId == "admin_master_1" ||
+            user.role == "ADMIN"
+
         if (!isCreator && !isAdmin) {
-            Log.w("MarketplaceRepo", "Unauthorized delete attempt for set $setId by user $userId")
+            Log.w("MarketplaceRepo", "Strict RBAC security check failed: Set $setId cannot be deleted by user $effectiveUserId (role: $effectiveRole). Only the original creator or an authorized Administrator may delete listings.")
             return
         }
         adminDeleteSet(setId)

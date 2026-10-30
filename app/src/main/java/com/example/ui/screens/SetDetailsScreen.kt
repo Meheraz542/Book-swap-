@@ -793,7 +793,7 @@ fun SetDetailsScreen(
         onDismissRequest = { showDeleteConfirmDialog = false },
         onConfirm = {
             showDeleteConfirmDialog = false
-            MarketplaceRepository.deleteSet(bookSet.id)
+            MarketplaceRepository.deleteSet(bookSet.id, requestingUserId = currentUser.id, requestingUserRole = currentUser.role)
             onNavigateBack()
         },
         title = "Delete Book Listing?",
@@ -811,10 +811,11 @@ fun SetDetailsScreen(
         onConfirm = {
             showMarkAsSoldConfirmDialog = false
             onMarkAsSold(bookSet)
+            onNavigateBack()
         },
         title = "Mark as Sold?",
-        description = "Have you completed the physical book exchange on campus with the buyer?",
-        confirmButtonText = "Mark as Sold",
+        description = "Have you completed the physical book exchange on campus with the buyer? Confirming will immediately remove this book listing from the database to conserve storage.",
+        confirmButtonText = "Mark as Sold & Remove",
         confirmButtonColor = PrimaryPurple,
         icon = Icons.Outlined.CheckCircle,
         iconColor = PrimaryPurple,
