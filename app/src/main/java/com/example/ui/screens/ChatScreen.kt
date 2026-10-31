@@ -201,7 +201,10 @@ fun ChatScreen(
                         ) {
                             if (!otherUserAvatarUri.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = otherUserAvatarUri,
+                                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                        .data(otherUserAvatarUri.sanitizeMediaUrl())
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = otherUserName,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -511,7 +514,10 @@ fun ChatScreen(
                                 val coverUrl = referencedSet.primaryCoverUrl
                                 if (!coverUrl.isNullOrBlank()) {
                                     AsyncImage(
-                                        model = coverUrl,
+                                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                            .data(coverUrl.sanitizeMediaUrl())
+                                            .crossfade(true)
+                                            .build(),
                                         contentDescription = referencedSet.title,
                                         contentScale = ContentScale.Crop,
                                         placeholder = painterResource(id = referencedSet.effectiveCoverDrawableRes),
@@ -694,7 +700,10 @@ private fun ChatBubble(
                 ) {
                     if (!resolvedAvatarUri.isNullOrBlank()) {
                         AsyncImage(
-                            model = resolvedAvatarUri,
+                            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                .data(resolvedAvatarUri.sanitizeMediaUrl())
+                                .crossfade(true)
+                                .build(),
                             contentDescription = resolvedSenderName,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()

@@ -59,6 +59,10 @@ interface BookSetDao {
     fun getAllBookSetsWithBooksFlow(): Flow<List<BookSetWithBooks>>
 
     @Transaction
+    @Query("SELECT * FROM book_sets ORDER BY createdAt DESC")
+    suspend fun getAllBookSetsWithBooks(): List<BookSetWithBooks>
+
+    @Transaction
     @Query("SELECT * FROM book_sets WHERE id = :id LIMIT 1")
     suspend fun getBookSetWithBooksById(id: String): BookSetWithBooks?
 

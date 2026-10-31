@@ -203,6 +203,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "sellerSem" to set.sellerSem,
                 "sellerPhone" to set.sellerPhone,
                 "sellerEmail" to set.sellerEmail,
+                "sellerAvatarUri" to (set.sellerAvatarUri ?: ""),
                 "title" to set.title,
                 "subject" to set.subject,
                 "technologyId" to set.technology.id,
@@ -229,14 +230,14 @@ class FirebaseFirestoreManager(private val context: Context) {
 
     fun listenAllBookSets(onSetsUpdated: (List<BookSet>) -> Unit): ListenerRegistration {
         return firestore.collection("bookSets")
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
                 if (error != null) {
                     Log.e(tag, "Error listening to book sets", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
                     val sets = snapshot.documents.mapNotNull { docToBookSet(it) }
+                        .sortedByDescending { it.createdAt }
                     Log.d(tag, "Live bookSets received from Firestore: ${sets.size}")
                     onSetsUpdated(sets)
                 }
@@ -291,6 +292,46 @@ class FirebaseFirestoreManager(private val context: Context) {
         }
     }
 
+    fun listenSingleBookSet(setId: String, onSetUpdated: (BookSet?) -> Unit): ListenerRegistration? {
+        if (setId.isBlank()) return null
+        return firestore.collection("bookSets").document(setId)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                if (error != null) {
+                    Log.e(tag, "Error listening to single book set $setId", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    if (snapshot.exists()) {
+                        onSetUpdated(docToBookSet(snapshot))
+                    } else {
+                        onSetUpdated(null)
+                    }
+                }
+            }
+    }
+
+    suspend fun updateSellerInfoInBookSets(sellerId: String, updatedUser: UserProfile) {
+        if (sellerId.isBlank()) return
+        try {
+            val query = firestore.collection("bookSets").whereEqualTo("sellerId", sellerId).get().await()
+            for (doc in query.documents) {
+                val updates = hashMapOf<String, Any?>(
+                    "sellerName" to updatedUser.name,
+                    "sellerCollege" to updatedUser.college,
+                    "sellerTech" to updatedUser.technology.displayName,
+                    "sellerSem" to updatedUser.currentSemester.displayName,
+                    "sellerPhone" to updatedUser.phone,
+                    "sellerEmail" to updatedUser.email,
+                    "sellerAvatarUri" to (updatedUser.profilePhotoUri ?: "")
+                )
+                doc.reference.update(updates).await()
+            }
+            Log.d(tag, "Updated seller info across ${query.size()} book sets in Firestore")
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to update seller info in book sets", e)
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun docToBookSet(doc: DocumentSnapshot): BookSet? {
         val id = doc.getString("id") ?: doc.id
@@ -302,6 +343,7 @@ class FirebaseFirestoreManager(private val context: Context) {
         val sellerSem = doc.getString("sellerSem") ?: "1st"
         val sellerPhone = doc.getString("sellerPhone") ?: ""
         val sellerEmail = doc.getString("sellerEmail") ?: ""
+        val sellerAvatarUri = doc.getString("sellerAvatarUri")?.takeIf { it.isNotBlank() }
         val subject = doc.getString("subject") ?: ""
         val techId = doc.getString("technologyId") ?: "civil"
         val semId = doc.getString("semesterId") ?: "1"
@@ -360,7 +402,8 @@ class FirebaseFirestoreManager(private val context: Context) {
             imageUrls = imageUrls,
             status = status,
             isSaved = false,
-            createdAt = createdAt
+            createdAt = createdAt,
+            sellerAvatarUri = sellerAvatarUri
         )
     }
 

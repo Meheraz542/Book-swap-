@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.MarketplaceRepository
 import com.example.model.AppNotification
+import com.example.model.sanitizeMediaUrl
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -144,7 +145,7 @@ private fun NotificationCard(
                     color = Color(0xFFE2E8F0)
                 ) {
                     coil.compose.AsyncImage(
-                        model = notif.senderAvatarUri,
+                        model = notif.senderAvatarUri.sanitizeMediaUrl(),
                         contentDescription = "Avatar",
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

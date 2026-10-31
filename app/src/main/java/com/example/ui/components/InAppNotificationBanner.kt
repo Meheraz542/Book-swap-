@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.InAppMessageAlert
+import com.example.model.sanitizeMediaUrl
 import kotlinx.coroutines.delay
 
 /**
@@ -136,7 +137,7 @@ fun InAppNotificationBanner(
                             ) {
                                 if (!alert.senderAvatarUri.isNullOrBlank()) {
                                     AsyncImage(
-                                        model = alert.senderAvatarUri,
+                                        model = alert.senderAvatarUri.sanitizeMediaUrl(),
                                         contentDescription = "${alert.senderName}'s avatar",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()

@@ -1240,7 +1240,10 @@ private fun HomeHeader(
             ) {
                 if (!avatarUri.isNullOrBlank()) {
                     AsyncImage(
-                        model = avatarUri,
+                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(avatarUri.sanitizeMediaUrl())
+                            .crossfade(true)
+                            .build(),
                         contentDescription = "Profile",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -1498,7 +1501,10 @@ fun BookSetCardHorizontal(
             val coverUrl = set.primaryCoverUrl
             if (!coverUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = coverUrl,
+                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                        .data(coverUrl)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = set.title,
                     contentScale = ContentScale.Crop,
                     placeholder = painterResource(id = set.effectiveCoverDrawableRes),
@@ -1712,9 +1718,9 @@ fun BookSetCardVertical(
                 )
 
                 val allUsers by MarketplaceRepository.allUsers.collectAsState()
-                val seller = allUsers.find { it.id == set.sellerId }
+                val seller = allUsers.find { it.id == set.sellerId } ?: MarketplaceRepository.getCachedUserProfile(set.sellerId)
                 val sellerCollege = seller?.college?.takeIf { it.isNotBlank() } ?: set.college
-                val sellerAvatarUri = seller?.profilePhotoUri
+                val sellerAvatarUri = (seller?.profilePhotoUri ?: set.sellerAvatarUri)?.sanitizeMediaUrl()
 
                 Text(
                     text = "🏫 $sellerCollege",
@@ -1735,7 +1741,10 @@ fun BookSetCardVertical(
                     ) {
                         if (!sellerAvatarUri.isNullOrBlank()) {
                             AsyncImage(
-                                model = sellerAvatarUri,
+                                model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                    .data(sellerAvatarUri.sanitizeMediaUrl())
+                                    .crossfade(true)
+                                    .build(),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()

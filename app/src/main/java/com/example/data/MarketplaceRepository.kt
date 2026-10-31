@@ -290,11 +290,34 @@ object MarketplaceRepository {
             // Public catalog listeners (allowed by firestore.rules)
             firestore.listenAllBookSets { firestoreSets ->
                 val currentSaved = _savedSetIds.value
-                val mapped = firestoreSets.map { it.copy(isSaved = currentSaved.contains(it.id)) }
+                val userMap = _allUsers.value.associateBy { it.id }
+                val mapped = firestoreSets.map { set ->
+                    val seller = userMap[set.sellerId] ?: _userProfileCache[set.sellerId]
+                    val enriched = if (seller != null) {
+                        set.copy(
+                            sellerName = seller.name.ifBlank { set.sellerName },
+                            sellerCollege = seller.college.ifBlank { set.college },
+                            sellerTech = seller.technology.displayName,
+                            sellerSem = seller.currentSemester.displayName,
+                            sellerPhone = seller.phone.ifBlank { set.sellerPhone },
+                            sellerAvatarUri = seller.profilePhotoUri ?: set.sellerAvatarUri
+                        )
+                    } else set
+                    enriched.copy(isSaved = currentSaved.contains(set.id))
+                }
                 _bookSets.value = mapped
                 Log.d("MarketplaceRepo", "Synced ${firestoreSets.size} bookSets from Firestore in real-time")
                 database?.let { db ->
                     scope.launch(Dispatchers.IO) {
+                        if (mapped.isNotEmpty()) {
+                            val activeRemoteIds = mapped.map { it.id }.toSet()
+                            val localExisting = db.bookSetDao().getAllBookSetsWithBooks()
+                            for (localItem in localExisting) {
+                                if (localItem.bookSet.id !in activeRemoteIds) {
+                                    db.bookSetDao().deleteBookSetById(localItem.bookSet.id)
+                                }
+                            }
+                        }
                         for (set in mapped) {
                             db.bookSetDao().insertBookSetWithBooks(
                                 set.toEntity(),
@@ -314,15 +337,82 @@ object MarketplaceRepository {
 
         // Real-Time Cloud Firestore Listeners for User Directory and Conversations
         try {
-            // Listen to all users for admin directory, cache, and live sync
+            // Listen to all users for admin directory, cache, and live sync across the entire app
             firestore.listenAllUsers { firestoreUsers ->
                 if (firestoreUsers.isNotEmpty()) {
                     _allUsers.value = firestoreUsers
                     for (u in firestoreUsers) {
                         _userProfileCache[u.id] = u
                     }
+                    val userMap = firestoreUsers.associateBy { it.id }
+                    // Real-time update across all book sets in memory
+                    _bookSets.update { sets ->
+                        sets.map { set ->
+                            val seller = userMap[set.sellerId]
+                            if (seller != null) {
+                                set.copy(
+                                    sellerName = seller.name.ifBlank { set.sellerName },
+                                    sellerCollege = seller.college.ifBlank { set.college },
+                                    sellerTech = seller.technology.displayName,
+                                    sellerSem = seller.currentSemester.displayName,
+                                    sellerPhone = seller.phone.ifBlank { set.sellerPhone },
+                                    sellerAvatarUri = seller.profilePhotoUri ?: set.sellerAvatarUri
+                                )
+                            } else set
+                        }
+                    }
                     for (u in firestoreUsers) {
                         propagateUserProfileUpdates(u)
+                    }
+                    // Persist synced users to local Room database for offline cache
+                    database?.let { db ->
+                        scope.launch(Dispatchers.IO) {
+                            for (u in firestoreUsers) {
+                                val isCur = (u.id == _currentUser.value.id)
+                                val currentEntity = db.userDao().getUserById(u.id)
+                                if (currentEntity != null) {
+                                    db.userDao().updateUser(
+                                        currentEntity.copy(
+                                            name = u.name,
+                                            email = u.email,
+                                            phone = u.phone,
+                                            college = u.college,
+                                            technologyId = u.technology.id,
+                                            semesterId = u.currentSemester.id,
+                                            profilePhotoUri = u.profilePhotoUri,
+                                            role = u.role,
+                                            accountStatus = u.accountStatus
+                                        )
+                                    )
+                                } else {
+                                    db.userDao().insertUser(
+                                        UserEntity(
+                                            id = u.id,
+                                            name = u.name,
+                                            email = u.email,
+                                            passwordHash = "",
+                                            phone = u.phone,
+                                            college = u.college,
+                                            technologyId = u.technology.id,
+                                            semesterId = u.currentSemester.id,
+                                            profilePhotoRes = null,
+                                            profilePhotoUri = u.profilePhotoUri,
+                                            role = u.role,
+                                            accountStatus = u.accountStatus,
+                                            isCurrentSession = isCur
+                                        )
+                                    )
+                                }
+                                db.bookSetDao().updateSellerInfoForSets(
+                                    sellerId = u.id,
+                                    name = u.name,
+                                    college = u.college,
+                                    tech = u.technology.displayName,
+                                    sem = u.currentSemester.displayName,
+                                    phone = u.phone
+                                )
+                            }
+                        }
                     }
                     Log.d("MarketplaceRepo", "Synced ${firestoreUsers.size} users from Firestore in real-time")
                 }
@@ -1290,6 +1380,7 @@ object MarketplaceRepository {
         scope.launch(Dispatchers.IO) {
             try {
                 firestoreManager?.saveUserProfile(updated)
+                firestoreManager?.updateSellerInfoInBookSets(updated.id, updated)
             } catch (e: Exception) {
                 Log.w("MarketplaceRepo", "Failed to sync updated profile to Firestore: ${e.message}")
             }
@@ -1304,6 +1395,7 @@ object MarketplaceRepository {
         scope.launch(Dispatchers.IO) {
             try {
                 firestoreManager?.saveUserProfile(updated)
+                firestoreManager?.updateSellerInfoInBookSets(updated.id, updated)
             } catch (e: Exception) {
                 Log.w("MarketplaceRepo", "Failed to sync photo to Firestore: ${e.message}")
             }
@@ -1339,6 +1431,72 @@ object MarketplaceRepository {
         } catch (e: Exception) {
             Log.e("MarketplaceRepo", "Failed to refresh book sets: ${e.message}", e)
             return@withContext false
+        }
+    }
+
+    /**
+     * Uploads new photos for a book listing to Firebase Cloud Storage,
+     * updates the book set document in Cloud Firestore, and triggers real-time updates
+     * across all devices.
+     */
+    fun uploadPhotosForBook(
+        context: Context,
+        setId: String,
+        newPhotoUris: List<Uri>,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        if (setId.isBlank() || newPhotoUris.isEmpty()) {
+            onComplete?.invoke(false)
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val currentSet = _bookSets.value.find { it.id == setId }
+                    ?: firestoreManager?.fetchBookSetsOnce(forceServer = false)?.find { it.id == setId }
+
+                if (currentSet == null) {
+                    withContext(Dispatchers.Main) { onComplete?.invoke(false) }
+                    return@launch
+                }
+
+                val uploadedUrls = newPhotoUris.mapIndexed { idx, uri ->
+                    val photoIndex = currentSet.imageUrls.size + idx
+                    FirebaseStorageManager.compressAndUploadBookImage(
+                        context = context,
+                        setId = setId,
+                        photoIndex = photoIndex,
+                        sourceUri = uri
+                    )
+                }
+
+                val combinedImageUrls = (currentSet.imageUrls + uploadedUrls).distinct()
+                val updatedSet = currentSet.copy(imageUrls = combinedImageUrls)
+
+                // 1. Immediately update in-memory state
+                _bookSets.update { list ->
+                    list.map { if (it.id == setId) updatedSet else it }
+                }
+
+                // 2. Persist to local Room database
+                database?.bookSetDao()?.insertBookSetWithBooks(
+                    updatedSet.toEntity(),
+                    updatedSet.includedBooks.map { it.toEntity(setId) }
+                )
+
+                // 3. Publish to Cloud Firestore to notify all real-time listeners across all devices
+                firestoreManager?.publishBookSet(updatedSet)
+                Log.d("MarketplaceRepo", "Uploaded ${uploadedUrls.size} photos for bookSet $setId and synced in real-time")
+
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(true)
+                }
+            } catch (e: Exception) {
+                Log.e("MarketplaceRepo", "Failed to upload photos for book $setId", e)
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false)
+                }
+            }
         }
     }
 

@@ -1923,97 +1923,45 @@ private fun GmailOtpVerificationCard(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Simulated Incoming Gmail Notification Box
+        // Security Verification Notice
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = Color(0xFFF8FAFC),
             border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFEFF6FF),
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFEA4335),
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Security,
+                            contentDescription = null,
+                            tint = Color(0xFF2563EB),
                             modifier = Modifier.size(20.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "M",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Google Mail • Inbox",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF1E293B)
                         )
                     }
-                    Text(
-                        text = "Received Just Now",
-                        fontSize = 10.sp,
-                        color = Color(0xFF16A34A),
-                        fontWeight = FontWeight.Medium
-                    )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Subject: Polytechnic Book Exchange Verification Code",
-                    fontSize = 12.sp,
-                    color = Color(0xFF475569)
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
                     Text(
-                        text = "OTP: ${sentCodeForTest ?: "******"}",
-                        fontSize = 15.sp,
+                        text = "Verification Code Dispatched",
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF4F46E5)
+                        color = Color(0xFF1E293B)
                     )
-                    if (sentCodeForTest != null) {
-                        Surface(
-                            onClick = onAutoFill,
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFEEF2FF),
-                            border = BorderStroke(1.dp, Color(0xFFC7D2FE))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.AutoFixHigh,
-                                    contentDescription = null,
-                                    tint = Color(0xFF4F46E5),
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Auto Fill",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF4F46E5)
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = "Please check your system notification or Gmail inbox to retrieve your 6-digit verification code.",
+                        fontSize = 11.5.sp,
+                        color = Color(0xFF64748B),
+                        lineHeight = 15.sp
+                    )
                 }
             }
         }

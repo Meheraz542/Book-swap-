@@ -25,6 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -35,6 +39,7 @@ import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.*
 import com.example.model.effectiveCoverDrawableRes
 import com.example.model.primaryCoverUrl
+import com.example.model.sanitizeMediaUrl
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +61,7 @@ import com.example.R
 import com.example.data.MarketplaceRepository
 import com.example.model.BookSet
 import com.example.model.SetStatus
+import com.example.model.UserProfile
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -70,29 +76,66 @@ fun SetDetailsScreen(
     val context = LocalContext.current
     val currentUser by MarketplaceRepository.currentUser.collectAsState()
     val allUsers by MarketplaceRepository.allUsers.collectAsState()
-    val sellerUser = (if (currentUser.id == bookSet.sellerId) currentUser else null)
-        ?: allUsers.find { it.id == bookSet.sellerId }
-        ?: MarketplaceRepository.getCachedUserProfile(bookSet.sellerId)
-    val dynamicSellerName = sellerUser?.name?.takeIf { it.isNotBlank() } ?: bookSet.sellerName
-    val dynamicSellerCollege = sellerUser?.college?.takeIf { it.isNotBlank() } ?: bookSet.sellerCollege
-    val dynamicSellerTech = sellerUser?.technology?.displayName?.takeIf { it.isNotBlank() } ?: bookSet.sellerTech
-    val dynamicSellerSem = sellerUser?.currentSemester?.displayName?.takeIf { it.isNotBlank() } ?: bookSet.sellerSem
-    val dynamicSellerPhone = sellerUser?.phone?.takeIf { it.isNotBlank() } ?: bookSet.sellerPhone
-    val dynamicSellerAvatarUri = sellerUser?.profilePhotoUri
-    val sellerAvatarRes = sellerUser?.profilePhotoRes
-    val isOwner = currentUser.id == bookSet.sellerId || (bookSet.sellerEmail.isNotBlank() && currentUser.email.equals(bookSet.sellerEmail, ignoreCase = true))
+    val allBookSets by MarketplaceRepository.bookSets.collectAsState()
+    val repoBookSet = allBookSets.find { it.id == bookSet.id } ?: bookSet
+
+    // Direct Real-Time Snapshot Listener for this specific book set
+    var directLiveSet by remember { mutableStateOf<BookSet?>(null) }
+    DisposableEffect(bookSet.id) {
+        val reg = MarketplaceRepository.firestoreManager?.listenSingleBookSet(bookSet.id) { updatedRemote ->
+            if (updatedRemote != null) {
+                directLiveSet = updatedRemote
+            }
+        }
+        onDispose {
+            reg?.remove()
+        }
+    }
+    val currentSet = directLiveSet ?: repoBookSet
+
+    val sellerUser = (if (currentUser.id == currentSet.sellerId) currentUser else null)
+        ?: allUsers.find { it.id == currentSet.sellerId }
+        ?: MarketplaceRepository.getCachedUserProfile(currentSet.sellerId)
+
+    var fetchedSellerUser by remember { mutableStateOf<UserProfile?>(null) }
+    LaunchedEffect(currentSet.sellerId) {
+        if (sellerUser == null && currentSet.sellerId.isNotBlank()) {
+            fetchedSellerUser = MarketplaceRepository.getUserProfileAsync(currentSet.sellerId)
+        }
+    }
+    val effectiveSeller = sellerUser ?: fetchedSellerUser
+    val dynamicSellerName = effectiveSeller?.name?.takeIf { it.isNotBlank() } ?: currentSet.sellerName
+    val dynamicSellerCollege = effectiveSeller?.college?.takeIf { it.isNotBlank() } ?: currentSet.sellerCollege
+    val dynamicSellerTech = effectiveSeller?.technology?.displayName?.takeIf { it.isNotBlank() } ?: currentSet.sellerTech
+    val dynamicSellerSem = effectiveSeller?.currentSemester?.displayName?.takeIf { it.isNotBlank() } ?: currentSet.sellerSem
+    val dynamicSellerPhone = effectiveSeller?.phone?.takeIf { it.isNotBlank() } ?: currentSet.sellerPhone
+    val dynamicSellerAvatarUri = (effectiveSeller?.profilePhotoUri ?: currentSet.sellerAvatarUri)?.sanitizeMediaUrl()
+    val sellerAvatarRes = effectiveSeller?.profilePhotoRes
+    val isOwner = currentUser.id == currentSet.sellerId || (currentSet.sellerEmail.isNotBlank() && currentUser.email.equals(currentSet.sellerEmail, ignoreCase = true))
     val isAdmin = currentUser.role == "ADMIN" || currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
     val canDelete = isOwner || isAdmin
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showMarkAsSoldConfirmDialog by remember { mutableStateOf(false) }
 
-    val allUploadedPhotos = remember(bookSet) {
+    var isUploadingPhotos by remember { mutableStateOf(false) }
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 5)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            isUploadingPhotos = true
+            MarketplaceRepository.uploadPhotosForBook(context, currentSet.id, uris) {
+                isUploadingPhotos = false
+            }
+        }
+    }
+
+    val allUploadedPhotos = remember(currentSet) {
         val list = mutableListOf<String>()
-        bookSet.imageUrls.filter { it.isNotBlank() }.forEach { uri ->
+        currentSet.imageUrls.filter { it.isNotBlank() }.forEach { uri ->
             if (uri !in list) list.add(uri)
         }
-        bookSet.includedBooks.forEach { book ->
+        currentSet.includedBooks.forEach { book ->
             book.imageUris.filter { it.isNotBlank() }.forEach { uri ->
                 if (uri !in list) list.add(uri)
             }
@@ -103,7 +146,7 @@ fun SetDetailsScreen(
     var viewingPhotoFullscreen by remember { mutableStateOf<String?>(null) }
 
     // Increment actual book view interaction in telemetry
-    LaunchedEffect(bookSet.id) {
+    LaunchedEffect(currentSet.id) {
         MarketplaceRepository.recordBookCheck()
     }
 
@@ -141,9 +184,9 @@ fun SetDetailsScreen(
                     )
                 } else {
                     val savedIds by MarketplaceRepository.savedSetIds.collectAsState()
-                    val isSaved = savedIds.contains(bookSet.id)
+                    val isSaved = savedIds.contains(currentSet.id)
                     GlassIconButton(
-                        onClick = { MarketplaceRepository.toggleSaveSet(bookSet.id) },
+                        onClick = { MarketplaceRepository.toggleSaveSet(currentSet.id) },
                         icon = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                         contentDescription = if (isSaved) "Remove from Saved" else "Save Book",
                         tone = if (isSaved) GlassIconTone.PRIMARY_PURPLE else GlassIconTone.FROSTED_WHITE,
@@ -167,7 +210,7 @@ fun SetDetailsScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    if (bookSet.status == SetStatus.SOLD) {
+                    if (currentSet.status == SetStatus.SOLD) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
@@ -198,7 +241,7 @@ fun SetDetailsScreen(
                             Column {
                                 Text("Set Price", fontSize = 11.sp, color = TextMuted)
                                 Text(
-                                    text = "Tk ${bookSet.totalPrice}",
+                                    text = "Tk ${currentSet.totalPrice}",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color(0xFF059669)
@@ -207,7 +250,7 @@ fun SetDetailsScreen(
 
                             GlassIconButton(
                                 onClick = {
-                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${bookSet.sellerPhone}"))
+                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${currentSet.sellerPhone}"))
                                     context.startActivity(intent)
                                 },
                                 icon = Icons.Outlined.Phone,
@@ -220,7 +263,7 @@ fun SetDetailsScreen(
 
                             GlassButton(
                                 text = "Message Seller",
-                                onClick = { onMessageSeller(bookSet) },
+                                onClick = { onMessageSeller(currentSet) },
                                 icon = Icons.Outlined.ChatBubbleOutline,
                                 modifier = Modifier.weight(1f),
                                 testTag = "btn_message_seller"
@@ -280,22 +323,26 @@ fun SetDetailsScreen(
                         val activePhoto = if (allUploadedPhotos.isNotEmpty()) {
                             allUploadedPhotos.getOrElse(selectedPhotoIndex) { allUploadedPhotos.first() }
                         } else {
-                            bookSet.primaryCoverUrl
+                            currentSet.primaryCoverUrl
                         }
+                        val sanitizedPhoto = activePhoto.sanitizeMediaUrl()
 
-                        if (!activePhoto.isNullOrBlank()) {
+                        if (!sanitizedPhoto.isNullOrBlank()) {
                             AsyncImage(
-                                model = activePhoto,
-                                contentDescription = bookSet.title,
+                                model = coil.request.ImageRequest.Builder(context)
+                                    .data(sanitizedPhoto)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = currentSet.title,
                                 contentScale = ContentScale.Crop,
-                                placeholder = painterResource(id = bookSet.effectiveCoverDrawableRes),
-                                error = painterResource(id = bookSet.effectiveCoverDrawableRes),
+                                placeholder = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                error = painterResource(id = currentSet.effectiveCoverDrawableRes),
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
                             Image(
-                                painter = painterResource(id = bookSet.effectiveCoverDrawableRes),
-                                contentDescription = bookSet.title,
+                                painter = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                contentDescription = currentSet.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -323,21 +370,60 @@ fun SetDetailsScreen(
                 }
             }
 
-            // All Uploaded Book Cover Photos Gallery
-            if (allUploadedPhotos.size > 1) {
-                item {
-                    Column(
+            // All Uploaded Book Cover Photos Gallery with Real-Time Add/Upload affordance
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp)
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 4.dp)
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Uploaded Book Photos (${allUploadedPhotos.size})",
+                            text = if (allUploadedPhotos.isNotEmpty()) "Uploaded Book Photos (${allUploadedPhotos.size})" else "Book Photos",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = TextSecondary,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            color = TextSecondary
                         )
+
+                        if (isOwner) {
+                            TextButton(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                enabled = !isUploadingPhotos,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                if (isUploadingPhotos) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = PrimaryPurple
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Uploading...", fontSize = 12.sp, color = PrimaryPurple)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AddPhotoAlternate,
+                                        contentDescription = "Upload Photos",
+                                        tint = PrimaryPurple,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Upload Photos", fontSize = 12.sp, color = PrimaryPurple, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (allUploadedPhotos.isNotEmpty()) {
                         androidx.compose.foundation.lazy.LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -358,7 +444,10 @@ fun SetDetailsScreen(
                                     shadowElevation = if (isSelected) 4.dp else 1.dp
                                 ) {
                                     AsyncImage(
-                                        model = photoUri,
+                                        model = coil.request.ImageRequest.Builder(context)
+                                            .data(photoUri.sanitizeMediaUrl())
+                                            .crossfade(true)
+                                            .build(),
                                         contentDescription = "Cover Photo ${idx + 1}",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
@@ -377,7 +466,7 @@ fun SetDetailsScreen(
                     shape = RoundedCornerShape(26.dp)
                 ) {
                     Text(
-                        text = bookSet.title,
+                        text = currentSet.title,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
@@ -386,7 +475,7 @@ fun SetDetailsScreen(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "Subject: ${bookSet.subject}",
+                        text = "Subject: ${currentSet.subject}",
                         fontSize = 14.sp,
                         color = TextSecondary
                     )
@@ -398,16 +487,16 @@ fun SetDetailsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        DetailBadge("${bookSet.semester.displayName}")
-                        DetailBadge("${bookSet.technology.displayName}")
+                        DetailBadge("${currentSet.semester.displayName}")
+                        DetailBadge("${currentSet.technology.displayName}")
                     }
                 }
             }
 
             // Condition & Price Card
             item {
-                val estimatedRetail = (bookSet.totalPrice * 2.2).toInt()
-                val savings = estimatedRetail - bookSet.totalPrice
+                val estimatedRetail = (currentSet.totalPrice * 2.2).toInt()
+                val savings = estimatedRetail - currentSet.totalPrice
 
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -421,7 +510,7 @@ fun SetDetailsScreen(
                         Column {
                             Text("Condition", fontSize = 12.sp, color = TextMuted)
                             Spacer(modifier = Modifier.height(4.dp))
-                            ConditionBadge(condition = bookSet.overallCondition)
+                            ConditionBadge(condition = currentSet.overallCondition)
                         }
 
                         Box(
@@ -436,7 +525,7 @@ fun SetDetailsScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
-                                    text = "Tk ${bookSet.totalPrice}",
+                                    text = "Tk ${currentSet.totalPrice}",
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color(0xFF059669)
@@ -521,7 +610,7 @@ fun SetDetailsScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Meet inside ${bookSet.sellerCollege}. Verify all books before paying.",
+                                text = "Meet inside ${currentSet.sellerCollege}. Verify all books before paying.",
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
@@ -544,7 +633,7 @@ fun SetDetailsScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = bookSet.description,
+                        text = currentSet.description,
                         fontSize = 14.sp,
                         color = TextSecondary,
                         lineHeight = 20.sp
@@ -570,7 +659,7 @@ fun SetDetailsScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "${bookSet.includedBooks.size} Books",
+                            text = "${currentSet.includedBooks.size} Books",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = PrimaryPurple
@@ -587,7 +676,7 @@ fun SetDetailsScreen(
                 }
             }
 
-            itemsIndexed(bookSet.includedBooks) { index, book ->
+            itemsIndexed(currentSet.includedBooks) { index, book ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
@@ -675,7 +764,10 @@ fun SetDetailsScreen(
                         ) {
                             if (!dynamicSellerAvatarUri.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = dynamicSellerAvatarUri,
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(dynamicSellerAvatarUri)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = "Seller Profile Picture",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -793,11 +885,11 @@ fun SetDetailsScreen(
         onDismissRequest = { showDeleteConfirmDialog = false },
         onConfirm = {
             showDeleteConfirmDialog = false
-            MarketplaceRepository.deleteSet(bookSet.id, requestingUserId = currentUser.id, requestingUserRole = currentUser.role)
+            MarketplaceRepository.deleteSet(currentSet.id, requestingUserId = currentUser.id, requestingUserRole = currentUser.role)
             onNavigateBack()
         },
         title = "Delete Book Listing?",
-        description = "Are you sure you want to delete '${bookSet.title}'? This action cannot be undone.",
+        description = "Are you sure you want to delete '${currentSet.title}'? This action cannot be undone.",
         confirmButtonText = "Delete Listing",
         confirmButtonColor = Color(0xFFEF4444),
         icon = Icons.Outlined.Delete,
@@ -810,7 +902,7 @@ fun SetDetailsScreen(
         onDismissRequest = { showMarkAsSoldConfirmDialog = false },
         onConfirm = {
             showMarkAsSoldConfirmDialog = false
-            onMarkAsSold(bookSet)
+            onMarkAsSold(currentSet)
             onNavigateBack()
         },
         title = "Mark as Sold?",

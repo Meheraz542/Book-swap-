@@ -79,7 +79,8 @@ data class BookSet(
     val imageUrls: List<String> = emptyList(),
     val status: SetStatus = SetStatus.AVAILABLE,
     val isSaved: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val sellerAvatarUri: String? = null
 )
 
 data class UserProfile(
@@ -225,8 +226,24 @@ data class AppTrafficStats(
  * followed by any uploaded images attached to individual included books.
  */
 val BookSet.primaryCoverUrl: String?
-    get() = imageUrls.firstOrNull { it.isNotBlank() }
-        ?: includedBooks.flatMap { it.imageUris }.firstOrNull { it.isNotBlank() }
+    get() {
+        val raw = imageUrls.firstOrNull { it.isNotBlank() }
+            ?: includedBooks.flatMap { it.imageUris }.firstOrNull { it.isNotBlank() }
+        return raw.sanitizeMediaUrl()
+    }
+
+/**
+ * Strips erroneous query strings from local file URIs (e.g. file:///.../image.jpg?t=123)
+ * so that Coil and local file decoders can locate and render the file from storage.
+ */
+fun String?.sanitizeMediaUrl(): String? {
+    if (this.isNullOrBlank()) return null
+    return if (this.startsWith("file:") && this.contains("?")) {
+        this.substringBefore("?")
+    } else {
+        this
+    }
+}
 
 /**
  * Resolves the effective drawable resource for this book set, guaranteeing a technology-specific

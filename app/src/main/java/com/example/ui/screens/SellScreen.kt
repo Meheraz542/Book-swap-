@@ -465,7 +465,10 @@ fun SellScreen(
                             if (book.imageUris.isNotEmpty()) {
                                 book.imageUris.firstOrNull()?.let { imgUri ->
                                     AsyncImage(
-                                        model = imgUri,
+                                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                            .data(imgUri.sanitizeMediaUrl())
+                                            .crossfade(true)
+                                            .build(),
                                         contentDescription = "Front cover",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
@@ -644,7 +647,10 @@ fun SellScreen(
                                     .background(Color(0xFFE2E8F0))
                             ) {
                                 AsyncImage(
-                                    model = coverPhotoUri,
+                                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                        .data(coverPhotoUri.sanitizeMediaUrl())
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = "Cover Photo",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -907,7 +913,10 @@ fun SellScreen(
                     ) {
                         if (newBookImage1Uri != null) {
                             AsyncImage(
-                                model = newBookImage1Uri,
+                                model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                    .data(newBookImage1Uri.toString().sanitizeMediaUrl())
+                                    .crossfade(true)
+                                    .build(),
                                 contentDescription = "Front cover",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()

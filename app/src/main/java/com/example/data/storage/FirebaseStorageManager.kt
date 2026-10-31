@@ -42,7 +42,7 @@ object FirebaseStorageManager {
                     FileOutputStream(localFile).use { output -> input.copyTo(output) }
                 }
             }
-            "${Uri.fromFile(localFile)}?t=$timestamp"
+            Uri.fromFile(localFile).toString()
         } catch (e: Exception) {
             Log.w(TAG, "Failed to persist local avatar copy", e)
             sourceUri.toString()
@@ -72,9 +72,8 @@ object FirebaseStorageManager {
 
             storageRef.putBytes(compressedBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
-            val finalUrl = if (downloadUrl.contains("?")) "$downloadUrl&t=$timestamp" else "$downloadUrl?t=$timestamp"
-            Log.d(TAG, "Successfully uploaded profile picture to Firebase Storage: $finalUrl")
-            finalUrl
+            Log.d(TAG, "Successfully uploaded profile picture to Firebase Storage: $downloadUrl")
+            downloadUrl
         } catch (e: Exception) {
             Log.w(TAG, "Firebase Storage upload failed, falling back to persistent local URI: ${e.message}")
             localPersistentUri
@@ -104,7 +103,7 @@ object FirebaseStorageManager {
                     FileOutputStream(localFile).use { output -> input.copyTo(output) }
                 }
             }
-            "${Uri.fromFile(localFile)}?t=$timestamp"
+            Uri.fromFile(localFile).toString()
         } catch (e: Exception) {
             Log.w(TAG, "Failed to persist local book image copy", e)
             sourceUri.toString()
@@ -130,9 +129,8 @@ object FirebaseStorageManager {
 
             storageRef.putBytes(compressedBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
-            val finalUrl = if (downloadUrl.contains("?")) "$downloadUrl&t=$timestamp" else "$downloadUrl?t=$timestamp"
-            Log.d(TAG, "Successfully uploaded book image to Firebase Storage: $finalUrl")
-            finalUrl
+            Log.d(TAG, "Successfully uploaded book image to Firebase Storage: $downloadUrl")
+            downloadUrl
         } catch (e: Exception) {
             Log.w(TAG, "Firebase Storage book image upload failed, falling back to local URI: ${e.message}")
             localPersistentUri

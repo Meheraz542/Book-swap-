@@ -39,7 +39,8 @@ class AuthManager(
         if (trimmedEmail.isBlank()) {
             return@withContext AuthResult.Error("Email address cannot be blank.")
         }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
+        val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+        if (!emailRegex.matches(trimmedEmail)) {
             return@withContext AuthResult.Error("Please enter a valid email address.")
         }
         if (password.isBlank()) {
@@ -231,14 +232,17 @@ class AuthManager(
         if (trimmedName.length < 2) {
             return@withContext AuthResult.Error("Please enter your full student name.")
         }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
+        val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+        if (!emailRegex.matches(trimmedEmail)) {
             return@withContext AuthResult.Error("Please enter a valid email address.")
         }
         if (password.length < 6) {
             return@withContext AuthResult.Error("Password must be at least 6 characters long.")
         }
-        if (trimmedPhone.length < 6) {
-            return@withContext AuthResult.Error("Please enter a valid contact phone number.")
+        val cleanPhone = trimmedPhone.replace("-", "").replace(" ", "")
+        val phoneRegex = "^(?:\\+?880|0)1[3-9]\\d{8}$".toRegex()
+        if (!phoneRegex.matches(cleanPhone) && cleanPhone.length < 10) {
+            return@withContext AuthResult.Error("Please enter a valid mobile phone number (e.g. 01712-345678).")
         }
 
         val existing = userDao.getUserByEmail(trimmedEmail)

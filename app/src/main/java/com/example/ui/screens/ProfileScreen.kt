@@ -193,8 +193,12 @@ fun ProfileScreen(
                                 color = PrimaryPurpleLight
                             ) {
                                 if (!currentUser.profilePhotoUri.isNullOrBlank()) {
+                                    val photoUrl = currentUser.profilePhotoUri.sanitizeMediaUrl()
                                     AsyncImage(
-                                        model = currentUser.profilePhotoUri,
+                                        model = coil.request.ImageRequest.Builder(context)
+                                            .data(photoUrl)
+                                            .crossfade(true)
+                                            .build(),
                                         contentDescription = "Profile Photo",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
@@ -647,7 +651,7 @@ fun ProfileScreen(
                     }
                 } else {
                     Surface(
-                        onClick = { showLoginDialog = true },
+                        onClick = { onRequireLogin() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .shadow(

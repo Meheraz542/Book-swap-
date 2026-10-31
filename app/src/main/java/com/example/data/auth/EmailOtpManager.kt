@@ -100,16 +100,19 @@ class EmailOtpManager(private val context: Context) {
         val trimmedPhone = phone.trim()
 
         if (trimmedName.length < 2) {
-            return OtpResult.Error("Please enter your full name.")
+            return OtpResult.Error("Please enter your full student name.")
         }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches() && !trimmedEmail.contains("@")) {
-            return OtpResult.Error("Please enter a valid Gmail / email address.")
+        val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+        if (!emailRegex.matches(trimmedEmail)) {
+            return OtpResult.Error("Please enter a valid Gmail / student email address.")
         }
         if (password.length < 6) {
-            return OtpResult.Error("Password must be at least 6 characters.")
+            return OtpResult.Error("Password must be at least 6 characters long.")
         }
-        if (trimmedPhone.length < 6) {
-            return OtpResult.Error("Please enter a valid phone number.")
+        val cleanPhone = trimmedPhone.replace("-", "").replace(" ", "")
+        val phoneRegex = "^(?:\\+?880|0)1[3-9]\\d{8}$".toRegex()
+        if (!phoneRegex.matches(cleanPhone) && cleanPhone.length < 10) {
+            return OtpResult.Error("Please enter a valid mobile phone number (e.g. 01712-345678).")
         }
 
         val otp = generateOtp()
