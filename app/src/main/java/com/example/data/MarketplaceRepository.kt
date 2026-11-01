@@ -291,7 +291,10 @@ object MarketplaceRepository {
             firestore.listenAllBookSets { firestoreSets ->
                 val currentSaved = _savedSetIds.value
                 val userMap = _allUsers.value.associateBy { it.id }
-                val mapped = firestoreSets.map { set ->
+                val validSets = firestoreSets.filterNot { 
+                    it.id.startsWith("demo") || it.id.startsWith("sample") || it.id == "set_civil_4th_1" || it.id.contains("mock") 
+                }
+                val mapped = validSets.map { set ->
                     val seller = userMap[set.sellerId] ?: _userProfileCache[set.sellerId]
                     val enriched = if (seller != null) {
                         set.copy(
@@ -306,7 +309,7 @@ object MarketplaceRepository {
                     enriched.copy(isSaved = currentSaved.contains(set.id))
                 }
                 _bookSets.value = mapped
-                Log.d("MarketplaceRepo", "Synced ${firestoreSets.size} bookSets from Firestore in real-time")
+                Log.d("MarketplaceRepo", "Synced ${validSets.size} valid bookSets from Firestore in real-time (demo data purged)")
                 database?.let { db ->
                     scope.launch(Dispatchers.IO) {
                         if (mapped.isNotEmpty()) {
@@ -676,6 +679,32 @@ object MarketplaceRepository {
             db.megaDealDao().clearAllMegaDeals()
             db.notificationDao().clearAllNotifications()
             db.userDao().clearNonAdminUsers()
+        }
+
+        // Purge any lingering demo listings matching demo/sample/mock patterns
+        try {
+            val allLocal = db.bookSetDao().getAllBookSetsWithBooks()
+            for (item in allLocal) {
+                val id = item.bookSet.id
+                if (id.startsWith("demo") || id.startsWith("sample") || id == "set_civil_4th_1" || id.contains("mock")) {
+                    db.bookSetDao().deleteBookSetById(id)
+                    db.bookSetDao().deleteBooksForSet(id)
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("MarketplaceRepo", "Local demo purge note: ${e.message}")
+        }
+
+        // Remote Firestore demo document cleanup
+        firestoreManager?.let { fs ->
+            try {
+                val legacyDemoIds = listOf("set_civil_4th_1", "demo_set_1", "sample_set_1", "sample_book_set_1")
+                for (legacyId in legacyDemoIds) {
+                    try {
+                        fs.deleteBookSet(legacyId)
+                    } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
         }
     }
 

@@ -22,8 +22,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -119,30 +123,52 @@ fun SetDetailsScreen(
     var showMarkAsSoldConfirmDialog by remember { mutableStateOf(false) }
 
     var isUploadingPhotos by remember { mutableStateOf(false) }
+    var optimisticPhotos by remember { mutableStateOf<List<String>>(emptyList()) }
     val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 5)
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
     ) { uris ->
         if (uris.isNotEmpty()) {
             isUploadingPhotos = true
+            // Immediately render newly picked photos in real time
+            val stringUris = uris.map { it.toString() }
+            optimisticPhotos = (optimisticPhotos + stringUris).distinct()
             MarketplaceRepository.uploadPhotosForBook(context, currentSet.id, uris) {
                 isUploadingPhotos = false
             }
         }
     }
 
-    val allUploadedPhotos = remember(currentSet) {
+    // Clear optimistic photos once remote Firestore URLs have propagated
+    LaunchedEffect(currentSet.imageUrls) {
+        if (currentSet.imageUrls.any { it.startsWith("http") }) {
+            optimisticPhotos = emptyList()
+        }
+    }
+
+    val allUploadedPhotos = remember(currentSet, optimisticPhotos) {
         val list = mutableListOf<String>()
+        // 1. Explicit set cover / image URLs
         currentSet.imageUrls.filter { it.isNotBlank() }.forEach { uri ->
             if (uri !in list) list.add(uri)
         }
+        // 2. Individual included book front cover photos
         currentSet.includedBooks.forEach { book ->
             book.imageUris.filter { it.isNotBlank() }.forEach { uri ->
                 if (uri !in list) list.add(uri)
             }
         }
+        // 3. Primary cover URL fallback if not already present
+        currentSet.primaryCoverUrl?.takeIf { it.isNotBlank() }?.let { primary ->
+            if (primary !in list) list.add(0, primary)
+        }
+        // 4. Optimistic real-time uploads
+        optimisticPhotos.filter { it.isNotBlank() }.forEach { uri ->
+            if (uri !in list) list.add(uri)
+        }
         list
     }
     var selectedPhotoIndex by remember(allUploadedPhotos) { mutableIntStateOf(0) }
+    var viewingPhotoIndex by remember(allUploadedPhotos) { mutableIntStateOf(0) }
     var viewingPhotoFullscreen by remember { mutableStateOf<String?>(null) }
 
     // Increment actual book view interaction in telemetry
@@ -281,43 +307,47 @@ fun SetDetailsScreen(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 3D Hero Book Presentation
+            // 3D Hero Book Presentation with Next/Prev Photo Navigation
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp),
+                        .height(280.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     // Soft background glow
                     Box(
                         modifier = Modifier
-                            .size(200.dp)
+                            .size(210.dp)
                             .clip(CircleShape)
                             .background(
                                 Brush.radialGradient(
-                                    listOf(PrimaryPurpleLight.copy(alpha = 0.6f), Color.Transparent)
+                                    listOf(PrimaryPurpleLight.copy(alpha = 0.65f), Color.Transparent)
                                 )
                             )
                     )
 
-                    // Book stack image
+                    // Hero Book Cover Presentation
                     Surface(
                         modifier = Modifier
-                            .width(170.dp)
-                            .height(230.dp)
+                            .width(176.dp)
+                            .height(240.dp)
                             .shadow(
                                 elevation = 16.dp,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 ambientColor = DeepShadowColor,
                                 spotColor = DeepShadowColor
                             )
                             .clickable {
                                 if (allUploadedPhotos.isNotEmpty()) {
-                                    viewingPhotoFullscreen = allUploadedPhotos.getOrNull(selectedPhotoIndex)
+                                    viewingPhotoIndex = selectedPhotoIndex
+                                    viewingPhotoFullscreen = allUploadedPhotos.getOrNull(selectedPhotoIndex) ?: currentSet.primaryCoverUrl
+                                } else if (!currentSet.primaryCoverUrl.isNullOrBlank()) {
+                                    viewingPhotoIndex = 0
+                                    viewingPhotoFullscreen = currentSet.primaryCoverUrl
                                 }
                             },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = Color.White
                     ) {
                         val activePhoto = if (allUploadedPhotos.isNotEmpty()) {
@@ -327,36 +357,117 @@ fun SetDetailsScreen(
                         }
                         val sanitizedPhoto = activePhoto.sanitizeMediaUrl()
 
-                        if (!sanitizedPhoto.isNullOrBlank()) {
-                            AsyncImage(
-                                model = coil.request.ImageRequest.Builder(context)
-                                    .data(sanitizedPhoto)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = currentSet.title,
-                                contentScale = ContentScale.Crop,
-                                placeholder = painterResource(id = currentSet.effectiveCoverDrawableRes),
-                                error = painterResource(id = currentSet.effectiveCoverDrawableRes),
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Image(
-                                painter = painterResource(id = currentSet.effectiveCoverDrawableRes),
-                                contentDescription = currentSet.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (!sanitizedPhoto.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(sanitizedPhoto)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = currentSet.title,
+                                    contentScale = ContentScale.Crop,
+                                    placeholder = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                    error = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Image(
+                                    painter = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                    contentDescription = currentSet.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+
+                            // Tag overlay at top-left
+                            Surface(
+                                shape = RoundedCornerShape(bottomEnd = 10.dp),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier.align(Alignment.TopStart)
+                            ) {
+                                Text(
+                                    text = if (selectedPhotoIndex == 0) "★ Main Cover" else "Book Cover ${selectedPhotoIndex + 1}",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+
+                            // Zoom indicator at bottom-left
+                            Surface(
+                                shape = RoundedCornerShape(topEnd = 8.dp),
+                                color = Color.Black.copy(alpha = 0.6f),
+                                modifier = Modifier.align(Alignment.BottomStart)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Visibility,
+                                        contentDescription = "Zoom",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Zoom", color = Color.White, fontSize = 9.sp)
+                                }
+                            }
                         }
                     }
 
-                    // Photo count badge
-                    if (allUploadedPhotos.isNotEmpty()) {
+                    // Navigation Chevrons for multi-photo browsing right on the hero card
+                    if (allUploadedPhotos.size > 1) {
+                        if (selectedPhotoIndex > 0) {
+                            IconButton(
+                                onClick = {
+                                    selectedPhotoIndex--
+                                    viewingPhotoIndex = selectedPhotoIndex
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .padding(start = 24.dp)
+                                    .size(38.dp)
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Previous Photo",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        if (selectedPhotoIndex < allUploadedPhotos.size - 1) {
+                            IconButton(
+                                onClick = {
+                                    selectedPhotoIndex++
+                                    viewingPhotoIndex = selectedPhotoIndex
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(end = 24.dp)
+                                    .size(38.dp)
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next Photo",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        // Photo count badge
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 12.dp)
+                                .padding(end = 12.dp, bottom = 8.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF334155).copy(alpha = 0.85f))
+                                .background(Color(0xFF334155).copy(alpha = 0.88f))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
@@ -386,9 +497,9 @@ fun SetDetailsScreen(
                     ) {
                         Text(
                             text = if (allUploadedPhotos.isNotEmpty()) "Uploaded Book Photos (${allUploadedPhotos.size})" else "Book Photos",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextSecondary
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
                         )
 
                         if (isOwner) {
@@ -430,29 +541,88 @@ fun SetDetailsScreen(
                         ) {
                             itemsIndexed(allUploadedPhotos) { idx, photoUri ->
                                 val isSelected = idx == selectedPhotoIndex
-                                Surface(
-                                    modifier = Modifier
-                                        .size(68.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable { selectedPhotoIndex = idx },
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color.White,
-                                    border = BorderStroke(
-                                        width = if (isSelected) 2.5.dp else 1.dp,
-                                        color = if (isSelected) PrimaryPurple else Color(0xFFE2E8F0)
-                                    ),
-                                    shadowElevation = if (isSelected) 4.dp else 1.dp
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.clickable {
+                                        selectedPhotoIndex = idx
+                                        viewingPhotoIndex = idx
+                                    }
                                 ) {
-                                    AsyncImage(
-                                        model = coil.request.ImageRequest.Builder(context)
-                                            .data(photoUri.sanitizeMediaUrl())
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = "Cover Photo ${idx + 1}",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
+                                    Surface(
+                                        modifier = Modifier
+                                            .width(72.dp)
+                                            .height(98.dp)
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color.White,
+                                        border = BorderStroke(
+                                            width = if (isSelected) 2.5.dp else 1.dp,
+                                            color = if (isSelected) PrimaryPurple else Color(0xFFCBD5E1)
+                                        ),
+                                        shadowElevation = if (isSelected) 6.dp else 2.dp
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            AsyncImage(
+                                                model = coil.request.ImageRequest.Builder(context)
+                                                    .data(photoUri.sanitizeMediaUrl())
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = "Cover Photo ${idx + 1}",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                            if (idx == 0) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(bottomEnd = 6.dp),
+                                                    color = PrimaryPurple,
+                                                    modifier = Modifier.align(Alignment.TopStart)
+                                                ) {
+                                                    Text(
+                                                        text = "Cover",
+                                                        color = Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (idx == 0) "Main Cover" else "Photo ${idx + 1}",
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) PrimaryPurple else TextMuted
                                     )
                                 }
+                            }
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AddPhotoAlternate,
+                                    contentDescription = null,
+                                    tint = PrimaryPurple,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = if (isOwner) "Tap 'Upload Photos' above to add photos of all included books." else "No additional photos uploaded by seller.",
+                                    fontSize = 12.sp,
+                                    color = TextMuted
+                                )
                             }
                         }
                     }
@@ -677,43 +847,114 @@ fun SetDetailsScreen(
             }
 
             itemsIndexed(currentSet.includedBooks) { index, book ->
+                val primaryBookPhoto = book.imageUris.firstOrNull { it.isNotBlank() }
+                val resolvedBookPhoto = primaryBookPhoto ?: currentSet.primaryCoverUrl
+                val sanitizedBookPhoto = resolvedBookPhoto.sanitizeMediaUrl()
+
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                     color = Color.White,
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 2.dp
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Display prominent book cover photo with book aspect ratio
                         Surface(
-                            modifier = Modifier.size(36.dp),
-                            shape = CircleShape,
-                            color = PrimaryPurpleLight
+                            modifier = Modifier
+                                .width(56.dp)
+                                .height(74.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (!sanitizedBookPhoto.isNullOrBlank()) {
+                                        val foundIdx = allUploadedPhotos.indexOf(primaryBookPhoto ?: sanitizedBookPhoto)
+                                        if (foundIdx >= 0) {
+                                            selectedPhotoIndex = foundIdx
+                                            viewingPhotoIndex = foundIdx
+                                        }
+                                        viewingPhotoFullscreen = sanitizedBookPhoto
+                                    }
+                                },
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF1F5F9),
+                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                            shadowElevation = 2.dp
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = String.format("%02d", index + 1),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryPurple
+                            if (!sanitizedBookPhoto.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(sanitizedBookPhoto)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = book.bookName,
+                                    contentScale = ContentScale.Crop,
+                                    placeholder = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                    error = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Image(
+                                    painter = painterResource(id = currentSet.effectiveCoverDrawableRes),
+                                    contentDescription = book.bookName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = PrimaryPurpleLight.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        text = "Book ${index + 1}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryPurple,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                if (primaryBookPhoto != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFECFDF5),
+                                        border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.5f))
+                                    ) {
+                                        Text(
+                                            text = "Cover Uploaded",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF047857),
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
                             Text(
                                 text = book.bookName,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary
+                                color = TextPrimary,
+                                maxLines = 2
                             )
+
                             Spacer(modifier = Modifier.height(2.dp))
+
                             Text(
                                 text = book.subject,
                                 fontSize = 12.sp,
@@ -721,24 +962,26 @@ fun SetDetailsScreen(
                             )
                         }
 
-                        if (book.imageUris.isNotEmpty()) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                book.imageUris.take(2).forEach { imgUri ->
-                                    AsyncImage(
-                                        model = imgUri,
-                                        contentDescription = "Book photo",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
-                                            .clickable { viewingPhotoFullscreen = imgUri }
-                                    )
+                        // Tap to enlarge / view cover action
+                        IconButton(
+                            onClick = {
+                                if (!sanitizedBookPhoto.isNullOrBlank()) {
+                                    val foundIdx = allUploadedPhotos.indexOf(primaryBookPhoto ?: sanitizedBookPhoto)
+                                    if (foundIdx >= 0) {
+                                        selectedPhotoIndex = foundIdx
+                                        viewingPhotoIndex = foundIdx
+                                    }
+                                    viewingPhotoFullscreen = sanitizedBookPhoto
                                 }
-                            }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Visibility,
+                                contentDescription = "View Cover Photo",
+                                tint = PrimaryPurple,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
@@ -914,7 +1157,7 @@ fun SetDetailsScreen(
         testTagConfirm = "btn_confirm_sold_popup"
     )
 
-    // Fullscreen Photo Viewer Dialog
+    // Fullscreen Photo Viewer Dialog with Photo Carousel & Multi-Photo Browsing
     if (viewingPhotoFullscreen != null) {
         Dialog(
             onDismissRequest = { viewingPhotoFullscreen = null },
@@ -923,32 +1166,143 @@ fun SetDetailsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.92f))
-                    .clickable { viewingPhotoFullscreen = null },
+                    .background(Color.Black.copy(alpha = 0.95f)),
                 contentAlignment = Alignment.Center
             ) {
+                // Main High-Res Image
                 AsyncImage(
                     model = viewingPhotoFullscreen,
                     contentDescription = "Full photo",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
-                        .fillMaxHeight(0.85f)
+                        .fillMaxHeight(0.78f)
                         .clip(RoundedCornerShape(16.dp))
                 )
 
-                // Close button
-                GlassIconButton(
-                    onClick = { viewingPhotoFullscreen = null },
-                    icon = Icons.Outlined.CheckCircle,
-                    contentDescription = "Close photo",
-                    tone = GlassIconTone.FROSTED_WHITE,
-                    size = 40.dp,
+                // Top Bar with Counter and Close Button
+                Row(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(16.dp)
-                )
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (allUploadedPhotos.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "Photo ${viewingPhotoIndex + 1} of ${allUploadedPhotos.size}",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
+                    }
+
+                    // Close button
+                    GlassIconButton(
+                        onClick = { viewingPhotoFullscreen = null },
+                        icon = Icons.Default.Close,
+                        contentDescription = "Close photo",
+                        tone = GlassIconTone.FROSTED_WHITE,
+                        size = 40.dp
+                    )
+                }
+
+                // Left Arrow (Previous Photo)
+                if (allUploadedPhotos.size > 1 && viewingPhotoIndex > 0) {
+                    IconButton(
+                        onClick = {
+                            viewingPhotoIndex--
+                            selectedPhotoIndex = viewingPhotoIndex
+                            viewingPhotoFullscreen = allUploadedPhotos[viewingPhotoIndex]
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 16.dp)
+                            .size(44.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Previous Photo",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                // Right Arrow (Next Photo)
+                if (allUploadedPhotos.size > 1 && viewingPhotoIndex < allUploadedPhotos.size - 1) {
+                    IconButton(
+                        onClick = {
+                            viewingPhotoIndex++
+                            selectedPhotoIndex = viewingPhotoIndex
+                            viewingPhotoFullscreen = allUploadedPhotos[viewingPhotoIndex]
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 16.dp)
+                            .size(44.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Next Photo",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                // Bottom Thumbnail Quick-Selector Strip
+                if (allUploadedPhotos.size > 1) {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(bottom = 20.dp, start = 16.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(allUploadedPhotos) { idx, photoUri ->
+                            val isCur = idx == viewingPhotoIndex
+                            Surface(
+                                modifier = Modifier
+                                    .size(width = 44.dp, height = 60.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        viewingPhotoIndex = idx
+                                        selectedPhotoIndex = idx
+                                        viewingPhotoFullscreen = photoUri
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(
+                                    width = if (isCur) 2.5.dp else 1.dp,
+                                    color = if (isCur) PrimaryPurple else Color.White.copy(alpha = 0.4f)
+                                ),
+                                color = Color.DarkGray
+                            ) {
+                                AsyncImage(
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(photoUri.sanitizeMediaUrl())
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Thumbnail ${idx + 1}",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

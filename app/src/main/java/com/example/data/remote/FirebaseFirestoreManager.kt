@@ -352,13 +352,26 @@ class FirebaseFirestoreManager(private val context: Context) {
         val conditionStr = doc.getString("overallCondition") ?: "GOOD"
         val condition = try { SetCondition.valueOf(conditionStr) } catch (_: Exception) { SetCondition.GOOD }
         val description = doc.getString("description") ?: ""
-        val imageUrls = (doc.get("imageUrls") as? List<String>) ?: emptyList()
+        val rawImageUrls = (doc.get("imageUrls") as? List<*>)?.mapNotNull { it?.toString() }?.filter { it.isNotBlank() } ?: emptyList()
+        val singleCover = doc.getString("coverPhotoUri") ?: doc.getString("imageUrl") ?: doc.getString("coverUrl")
+        val imageUrls = if (singleCover != null && singleCover.isNotBlank() && singleCover !in rawImageUrls) {
+            listOf(singleCover) + rawImageUrls
+        } else {
+            rawImageUrls
+        }
         val statusStr = doc.getString("status") ?: "AVAILABLE"
         val status = try { SetStatus.valueOf(statusStr) } catch (_: Exception) { SetStatus.AVAILABLE }
         val createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
 
         val rawBooks = doc.get("includedBooks") as? List<Map<String, Any>> ?: emptyList()
         val includedBooks = rawBooks.map { bMap ->
+            val bookImgs = (bMap["imageUris"] as? List<*>)?.mapNotNull { it?.toString() }?.filter { it.isNotBlank() } ?: emptyList()
+            val singleBookImg = (bMap["imageUri"] as? String) ?: (bMap["photoUri"] as? String) ?: (bMap["coverUri"] as? String)
+            val combinedBookImgs = if (singleBookImg != null && singleBookImg.isNotBlank() && singleBookImg !in bookImgs) {
+                listOf(singleBookImg) + bookImgs
+            } else {
+                bookImgs
+            }
             IncludedBook(
                 id = bMap["id"] as? String ?: UUID.randomUUID().toString(),
                 setId = id,
@@ -368,7 +381,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 edition = bMap["edition"] as? String ?: "",
                 bookCode = bMap["bookCode"] as? String ?: "",
                 condition = bMap["condition"] as? String ?: "Good",
-                imageUris = (bMap["imageUris"] as? List<String>) ?: emptyList()
+                imageUris = combinedBookImgs
             )
         }
 
