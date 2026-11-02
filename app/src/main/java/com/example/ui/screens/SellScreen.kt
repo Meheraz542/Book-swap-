@@ -973,7 +973,7 @@ fun SellScreen(
                                 strokeWidth = 2.dp,
                                 color = PrimaryPurple
                             )
-                            Text("Compressing photo...", fontSize = 11.sp, color = PrimaryPurple)
+                            Text("Saving original photo...", fontSize = 11.sp, color = PrimaryPurple)
                         }
                     }
 

@@ -1,15 +1,13 @@
 package com.example.data.storage
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -17,164 +15,148 @@ object FirebaseStorageManager {
     private const val TAG = "FirebaseStorageManager"
 
     /**
-     * Compresses the selected image locally to optimize bandwidth,
-     * uploads the compressed JPEG bytes to Firebase Cloud Storage under profile_images/{userId}.jpg,
-     * retrieves the secure download URL, and returns it.
-     * If Firebase Storage is unavailable or offline, gracefully falls back to a locally persisted URI.
+     * Stores and uploads user profile pictures without any compression, resizing, downscaling,
+     * or format conversion. Exact original image bytes and MIME type are preserved.
      */
-    suspend fun compressAndUploadProfileImage(
+    suspend fun uploadOriginalProfileImage(
         context: Context,
         userId: String,
         sourceUri: Uri
     ): String = withContext(Dispatchers.IO) {
         val timestamp = System.currentTimeMillis()
-        // Step 1: Compress locally with automatic downscale and 80% JPEG quality
-        val compressedBytes = compressImage(context, sourceUri, maxDimension = 512, quality = 80)
+        val mimeType = resolveMimeType(context, sourceUri)
+        val ext = resolveExtension(context, sourceUri, mimeType)
 
-        // Always ensure a persistent local fallback copy is saved with unique timestamp
+        // Store exact original bytes to app internal storage as persistent local fallback
         val localPersistentUri = try {
             val dir = File(context.filesDir, "marketplace_avatars").apply { if (!exists()) mkdirs() }
-            val localFile = File(dir, "avatar_${userId}_$timestamp.jpg")
-            if (compressedBytes != null) {
-                FileOutputStream(localFile).use { it.write(compressedBytes) }
-            } else {
-                context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    FileOutputStream(localFile).use { output -> input.copyTo(output) }
-                }
+            val localFile = File(dir, "avatar_${userId}_$timestamp.$ext")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                FileOutputStream(localFile).use { output -> input.copyTo(output) }
             }
             Uri.fromFile(localFile).toString()
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to persist local avatar copy", e)
+            Log.w(TAG, "Failed to persist original avatar copy", e)
             sourceUri.toString()
         }
 
-        if (compressedBytes == null) {
-            Log.w(TAG, "Image compression returned null, using local URI")
-            return@withContext localPersistentUri
-        }
-
-        // Step 2: Securely upload to Firebase Cloud Storage
         try {
+            val originalBytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
+                ?: return@withContext localPersistentUri
+
             val storage = try {
                 FirebaseStorage.getInstance()
             } catch (ex: Exception) {
                 Log.w(TAG, "Default FirebaseStorage.getInstance failed, trying with bucket: ${ex.message}")
                 FirebaseStorage.getInstance("gs://studio-4383603118-a2874.firebasestorage.app")
             }
-            val storageRef = storage.reference.child("profile_images/${userId}.jpg")
-            Log.d(TAG, "Uploading ${compressedBytes.size} bytes to Firebase Storage path: profile_images/${userId}.jpg")
-            
-            val metadata = com.google.firebase.storage.StorageMetadata.Builder()
-                .setContentType("image/jpeg")
+            val storageRef = storage.reference.child("profile_images/${userId}_$timestamp.$ext")
+            Log.d(TAG, "Uploading ${originalBytes.size} original bytes to Firebase Storage: profile_images/${userId}_$timestamp.$ext")
+
+            val metadata = StorageMetadata.Builder()
+                .setContentType(mimeType)
                 .setCustomMetadata("userId", userId)
                 .setCustomMetadata("updatedAt", timestamp.toString())
+                .setCustomMetadata("originalFormat", ext)
                 .build()
 
-            storageRef.putBytes(compressedBytes, metadata).await()
+            storageRef.putBytes(originalBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
-            Log.d(TAG, "Successfully uploaded profile picture to Firebase Storage: $downloadUrl")
+            Log.d(TAG, "Successfully uploaded exact original profile picture to Firebase Storage: $downloadUrl")
             downloadUrl
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase Storage upload failed, falling back to persistent local URI: ${e.message}")
+            Log.w(TAG, "Firebase Storage upload failed, falling back to local persistent URI: ${e.message}")
             localPersistentUri
         }
     }
 
     /**
-     * Compresses and uploads book listing photos to Firebase Cloud Storage under book_images/{setId}_{index}_{timestamp}.jpg.
-     * Generates a persistent local copy as fallback to guarantee availability.
+     * Stores and uploads book listing photos to Firebase Cloud Storage without any compression,
+     * resizing, or format conversion. Exact original image bytes and MIME type are preserved.
      */
-    suspend fun compressAndUploadBookImage(
+    suspend fun uploadOriginalBookImage(
         context: Context,
         setId: String,
         photoIndex: Int,
         sourceUri: Uri
     ): String = withContext(Dispatchers.IO) {
         val timestamp = System.currentTimeMillis()
-        val compressedBytes = compressImage(context, sourceUri, maxDimension = 1024, quality = 80)
+        val mimeType = resolveMimeType(context, sourceUri)
+        val ext = resolveExtension(context, sourceUri, mimeType)
 
+        // Store exact original bytes to app internal storage as persistent local fallback
         val localPersistentUri = try {
             val dir = File(context.filesDir, "marketplace_books").apply { if (!exists()) mkdirs() }
-            val localFile = File(dir, "book_${setId}_${photoIndex}_$timestamp.jpg")
-            if (compressedBytes != null) {
-                FileOutputStream(localFile).use { it.write(compressedBytes) }
-            } else {
-                context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    FileOutputStream(localFile).use { output -> input.copyTo(output) }
-                }
+            val localFile = File(dir, "book_${setId}_${photoIndex}_$timestamp.$ext")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                FileOutputStream(localFile).use { output -> input.copyTo(output) }
             }
             Uri.fromFile(localFile).toString()
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to persist local book image copy", e)
+            Log.w(TAG, "Failed to persist original book image copy", e)
             sourceUri.toString()
         }
 
-        if (compressedBytes == null) {
-            Log.w(TAG, "Book image compression returned null, using local URI")
-            return@withContext localPersistentUri
-        }
-
         try {
+            val originalBytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
+                ?: return@withContext localPersistentUri
+
             val storage = try {
                 FirebaseStorage.getInstance()
             } catch (ex: Exception) {
                 FirebaseStorage.getInstance("gs://studio-4383603118-a2874.firebasestorage.app")
             }
-            val storageRef = storage.reference.child("book_images/${setId}_${photoIndex}_$timestamp.jpg")
-            val metadata = com.google.firebase.storage.StorageMetadata.Builder()
-                .setContentType("image/jpeg")
+            val storageRef = storage.reference.child("book_images/${setId}_${photoIndex}_$timestamp.$ext")
+            val metadata = StorageMetadata.Builder()
+                .setContentType(mimeType)
                 .setCustomMetadata("setId", setId)
+                .setCustomMetadata("photoIndex", photoIndex.toString())
                 .setCustomMetadata("updatedAt", timestamp.toString())
+                .setCustomMetadata("originalFormat", ext)
                 .build()
 
-            storageRef.putBytes(compressedBytes, metadata).await()
+            storageRef.putBytes(originalBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
-            Log.d(TAG, "Successfully uploaded book image to Firebase Storage: $downloadUrl")
+            Log.d(TAG, "Successfully uploaded exact original book photo to Firebase Storage: $downloadUrl")
             downloadUrl
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase Storage book image upload failed, falling back to local URI: ${e.message}")
+            Log.w(TAG, "Firebase Storage book photo upload failed, falling back to local persistent URI: ${e.message}")
             localPersistentUri
         }
     }
 
     /**
-     * Compresses and downscales a bitmap locally to minimize network bandwidth.
+     * Backward-compatible aliases for existing callers to preserve zero-compression contract.
      */
-    fun compressImage(context: Context, sourceUri: Uri, maxDimension: Int = 512, quality: Int = 80): ByteArray? {
-        return try {
-            context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
-                val bytes = inputStream.readBytes()
-                val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+    suspend fun compressAndUploadProfileImage(context: Context, userId: String, sourceUri: Uri): String {
+        return uploadOriginalProfileImage(context, userId, sourceUri)
+    }
 
-                var sampleSize = 1
-                val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
-                while (maxDim / (sampleSize * 2) >= maxDimension) {
-                    sampleSize *= 2
-                }
+    suspend fun compressAndUploadBookImage(context: Context, setId: String, photoIndex: Int, sourceUri: Uri): String {
+        return uploadOriginalBookImage(context, setId, photoIndex, sourceUri)
+    }
 
-                val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-                val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions) ?: return null
+    private fun resolveMimeType(context: Context, uri: Uri): String {
+        return context.contentResolver.getType(uri) ?: when (uri.path?.substringAfterLast('.', "")?.lowercase()) {
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "heic" -> "image/heic"
+            else -> "image/jpeg"
+        }
+    }
 
-                val finalBitmap = if (decoded.width > maxDimension || decoded.height > maxDimension) {
-                    val ratio = minOf(maxDimension.toFloat() / decoded.width, maxDimension.toFloat() / decoded.height)
-                    val newWidth = (decoded.width * ratio).toInt().coerceAtLeast(1)
-                    val newHeight = (decoded.height * ratio).toInt().coerceAtLeast(1)
-                    Bitmap.createScaledBitmap(decoded, newWidth, newHeight, true).also {
-                        if (it != decoded) decoded.recycle()
-                    }
-                } else {
-                    decoded
-                }
-
-                val out = ByteArrayOutputStream()
-                finalBitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
-                finalBitmap.recycle()
-                out.toByteArray()
+    private fun resolveExtension(context: Context, uri: Uri, mimeType: String = resolveMimeType(context, uri)): String {
+        return when (mimeType) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "image/gif" -> "gif"
+            "image/heic" -> "heic"
+            "image/jpeg" -> "jpg"
+            else -> {
+                val ext = uri.path?.substringAfterLast('.', "")?.lowercase() ?: ""
+                if (ext.isNotBlank() && ext.length in 3..4) ext else "jpg"
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error compressing image", e)
-            null
         }
     }
 }

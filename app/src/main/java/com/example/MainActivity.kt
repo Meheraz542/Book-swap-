@@ -18,9 +18,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,12 +70,62 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp() {
     val isLoggedIn by MarketplaceRepository.isLoggedIn.collectAsState()
+    val currentUser by MarketplaceRepository.currentUser.collectAsState()
+    val appConfig by MarketplaceRepository.appConfig.collectAsState()
+    val revocationNotice by MarketplaceRepository.revocationNotice.collectAsState()
     var isAppLoading by remember { mutableStateOf(true) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(Unit) {
         delay(600)
         isAppLoading = false
     }
+
+    // Account Revocation Dialog (instant notice if admin suspended, blocked, or deleted user account)
+    if (revocationNotice != null) {
+        AlertDialog(
+            onDismissRequest = { MarketplaceRepository.clearRevocationNotice() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Block,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Access Revoked", fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                }
+            },
+            text = { Text(revocationNotice ?: "Your account has been deactivated by the administrator.") },
+            confirmButton = {
+                Button(
+                    onClick = { MarketplaceRepository.clearRevocationNotice() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Understood", color = Color.White)
+                }
+            }
+        )
+    }
+
+    val isAdmin = currentUser.role == "ADMIN" || currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
+    val isVersionOutdated = remember(appConfig.latestAppVersion) {
+        val installed = "1.0"
+        val instParts = installed.split(".").mapNotNull { it.toIntOrNull() }
+        val targetParts = appConfig.latestAppVersion.split(".").mapNotNull { it.toIntOrNull() }
+        val maxLen = maxOf(instParts.size, targetParts.size)
+        var outdated = false
+        for (i in 0 until maxLen) {
+            val inst = instParts.getOrElse(i) { 0 }
+            val targ = targetParts.getOrElse(i) { 0 }
+            if (inst < targ) { outdated = true; break }
+            if (inst > targ) { outdated = false; break }
+        }
+        outdated
+    }
+    val isForceUpdateActive = appConfig.isForceUpdate && isVersionOutdated
+    val isMaintenanceActive = appConfig.isMaintenanceMode && !isAdmin
 
     Crossfade(
         targetState = isAppLoading,
@@ -82,27 +134,296 @@ fun MainApp() {
     ) { loading ->
         if (loading) {
             AppLoadingSplashScreen()
+        } else if (isForceUpdateActive) {
+            ForceUpdateScreen(
+                appConfig = appConfig,
+                onUpdateClick = {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(appConfig.apkDownloadUrl))
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Failed to open update URL", e)
+                    }
+                }
+            )
+        } else if (isMaintenanceActive) {
+            MaintenanceModeScreen(
+                appConfig = appConfig,
+                onRetryClick = {
+                    // Trigger refresh
+                }
+            )
         } else {
-            // Strict Startup Auth Check: If session exists -> Home screen; otherwise -> AuthScreen
-            Crossfade(
-                targetState = isLoggedIn,
-                animationSpec = tween(300),
-                label = "authCrossfade"
-            ) { authenticated ->
-                if (!authenticated) {
-                    AuthScreen(
-                        onAuthSuccess = {
-                            // Authenticated state is handled reactively by isLoggedIn StateFlow
-                        },
-                        onDismiss = null // Strict wall: no guest bypass
-                    )
-                } else {
-                    MainAppContent(
-                        onRequestLogin = {
-                            MarketplaceRepository.logout()
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Strict Startup Auth Check: If session exists -> Home screen; otherwise -> AuthScreen
+                Crossfade(
+                    targetState = isLoggedIn,
+                    animationSpec = tween(300),
+                    label = "authCrossfade"
+                ) { authenticated ->
+                    if (!authenticated) {
+                        AuthScreen(
+                            onAuthSuccess = {
+                                // Authenticated state is handled reactively by isLoggedIn StateFlow
+                            },
+                            onDismiss = null // Strict wall: no guest bypass
+                        )
+                    } else {
+                        MainAppContent(
+                            onRequestLogin = {
+                                MarketplaceRepository.logout()
+                            }
+                        )
+                    }
+                }
+
+                // If Admin bypasses maintenance mode, display top notification pill
+                if (isAdmin && appConfig.isMaintenanceMode) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(top = 8.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFFF59E0B),
+                        shadowElevation = 6.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Build,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Maintenance Mode Active • Admin Bypass",
+                                color = Color.Black,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MaintenanceModeScreen(
+    appConfig: com.example.model.AppConfig,
+    onRetryClick: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F172A))
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                modifier = Modifier.size(90.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFF59E0B).copy(alpha = 0.4f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Outlined.Build,
+                        contentDescription = "Maintenance",
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(46.dp)
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Under Maintenance",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Campus Book Marketplace System Upgrade",
+                fontSize = 13.sp,
+                color = Color(0xFF94A3B8),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E293B),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+            ) {
+                Text(
+                    text = appConfig.maintenanceMessage,
+                    color = Color(0xFFE2E8F0),
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
+                    modifier = Modifier.padding(18.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                            data = Uri.parse("mailto:mdmaheraz65@gmail.com?subject=BookSwap%20Maintenance%20Query")
+                        }
+                        try { context.startActivity(emailIntent) } catch (_: Exception) {}
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569))
+                ) {
+                    Text("Support", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                }
+
+                Button(
+                    onClick = onRetryClick,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Check Status", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ForceUpdateScreen(
+    appConfig: com.example.model.AppConfig,
+    onUpdateClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F172A))
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                modifier = Modifier.size(90.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF3B82F6).copy(alpha = 0.4f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Outlined.SystemUpdate,
+                        contentDescription = "Update Required",
+                        tint = Color(0xFF3B82F6),
+                        modifier = Modifier.size(46.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Update Required",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF3B82F6).copy(alpha = 0.2f)
+            ) {
+                Text(
+                    text = "Version ${appConfig.latestAppVersion} Available",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF60A5FA),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E293B),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = "What's New:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = appConfig.updateNotes,
+                        color = Color(0xFFE2E8F0),
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Button(
+                onClick = onUpdateClick,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Update Now", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

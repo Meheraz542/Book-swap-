@@ -7,6 +7,7 @@ import com.example.model.*
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.*
+import kotlinx.coroutines.*
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
@@ -411,7 +412,7 @@ class FirebaseFirestoreManager(private val context: Context) {
             overallCondition = condition,
             description = description,
             includedBooks = includedBooks,
-            coverDrawableRes = defaultCoverRes,
+            coverDrawableRes = null,
             imageUrls = imageUrls,
             status = status,
             isSaved = false,
@@ -944,6 +945,82 @@ class FirebaseFirestoreManager(private val context: Context) {
                 .await()
         } catch (e: Exception) {
             Log.e(tag, "Failed to update mega deal status", e)
+        }
+    }
+
+    // -------------------------------------------------------------
+    // APP CONTROLS & MAINTENANCE (/app_config/global)
+    // -------------------------------------------------------------
+
+    suspend fun saveAppConfig(config: AppConfig) {
+        try {
+            val map = hashMapOf<String, Any>(
+                "is_maintenance_mode" to config.isMaintenanceMode,
+                "maintenance_message" to config.maintenanceMessage,
+                "is_force_update" to config.isForceUpdate,
+                "latest_app_version" to config.latestAppVersion,
+                "apk_download_url" to config.apkDownloadUrl,
+                "update_notes" to config.updateNotes,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("app_config").document("global")
+                .set(map, SetOptions.merge())
+                .await()
+            Log.d(tag, "AppConfig saved to Firestore successfully: isMaintenance=${config.isMaintenanceMode}, forceUpdate=${config.isForceUpdate}")
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to save app_config to Firestore", e)
+        }
+    }
+
+    fun listenAppConfig(onConfigUpdated: (AppConfig) -> Unit): ListenerRegistration? {
+        return try {
+            firestore.collection("app_config").document("global")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(tag, "Notice on app_config listener: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val isMaintenance = snapshot.getBoolean("is_maintenance_mode")
+                            ?: snapshot.getBoolean("isMaintenanceMode") ?: false
+                        val maintenanceMsg = snapshot.getString("maintenance_message")
+                            ?: snapshot.getString("maintenanceMessage")
+                            ?: "The app is currently undergoing scheduled campus maintenance. Please check back shortly."
+                        val isForceUpdate = snapshot.getBoolean("is_force_update")
+                            ?: snapshot.getBoolean("isForceUpdate") ?: false
+                        val latestVersion = snapshot.getString("latest_app_version")
+                            ?: snapshot.getString("latestAppVersion") ?: "1.0"
+                        val apkUrl = snapshot.getString("apk_download_url")
+                            ?: snapshot.getString("apkDownloadUrl")
+                            ?: "https://github.com/mdmaheraz65/BookSwap/releases"
+                        val updateNotes = snapshot.getString("update_notes")
+                            ?: snapshot.getString("updateNotes")
+                            ?: "Bug fixes, performance enhancements, and new campus marketplace features."
+
+                        val config = AppConfig(
+                            isMaintenanceMode = isMaintenance,
+                            maintenanceMessage = maintenanceMsg,
+                            isForceUpdate = isForceUpdate,
+                            latestAppVersion = latestVersion,
+                            apkDownloadUrl = apkUrl,
+                            updateNotes = updateNotes
+                        )
+                        Log.d(tag, "Live app_config received: maintenance=$isMaintenance, forceUpdate=$isForceUpdate, version=$latestVersion")
+                        onConfigUpdated(config)
+                    } else if (snapshot != null && !snapshot.exists()) {
+                        // Global config not yet initialized in Firestore; seed default document
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                saveAppConfig(AppConfig())
+                            } catch (e: Exception) {
+                                Log.w(tag, "Could not auto-seed app_config: ${e.message}")
+                            }
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to setup app_config listener", e)
+            null
         }
     }
 }

@@ -256,3 +256,32 @@ val BookSet.effectiveCoverDrawableRes: Int
         Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
         Technology.CSE -> R.drawable.book_cover_cse_1789735549141
     }
+
+data class AppConfig(
+    val isMaintenanceMode: Boolean = false,
+    val maintenanceMessage: String = "The app is currently undergoing scheduled campus maintenance. Please check back shortly.",
+    val isForceUpdate: Boolean = false,
+    val latestAppVersion: String = "1.0",
+    val apkDownloadUrl: String = "https://github.com/mdmaheraz65/BookSwap/releases",
+    val updateNotes: String = "Bug fixes, performance enhancements, and new campus marketplace features."
+)
+
+data class ReportItem(
+    val id: String,
+    val targetType: String = "LISTING",
+    val targetId: String,
+    val targetTitle: String,
+    val reason: String,
+    val reporterName: String,
+    val reporterEmail: String = "",
+    val timestamp: String = "Today",
+    val status: String = "PENDING"
+)
+
+data class FirebaseUsageMetrics(
+    val totalDocumentCount: Int = 0,
+    val estimatedStorageMb: Double = 0.0,
+    val totalUploadedPhotos: Int = 0,
+    val totalChatMessages: Int = 0,
+    val status: String = "Healthy (Spark Tier)"
+)

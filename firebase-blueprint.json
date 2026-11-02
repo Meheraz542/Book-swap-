@@ -77,6 +77,35 @@
         "dealStatus": { "type": "string", "description": "PENDING, ACCEPTED, REJECTED" }
       },
       "required": ["id", "conversationId", "senderId", "text"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Global maintenance mode and version enforcement controls",
+      "type": "object",
+      "properties": {
+        "is_maintenance_mode": { "type": "boolean" },
+        "maintenance_message": { "type": "string" },
+        "is_force_update": { "type": "boolean" },
+        "latest_app_version": { "type": "string" },
+        "apk_download_url": { "type": "string" },
+        "update_notes": { "type": "string" }
+      }
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Campus dispute and violation reports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "targetType": { "type": "string" },
+        "targetId": { "type": "string" },
+        "targetTitle": { "type": "string" },
+        "reason": { "type": "string" },
+        "reporterName": { "type": "string" },
+        "reporterEmail": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "status": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -95,6 +124,14 @@
     "/conversations/{conversationId}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/Message" },
       "description": "Realtime chat messages in a conversation"
+    },
+    "/app_config/{configId}": {
+      "schema": { "$ref": "#/entities/AppConfig" },
+      "description": "Global app management configuration"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "Student dispute and moderation reports"
     }
   }
 }

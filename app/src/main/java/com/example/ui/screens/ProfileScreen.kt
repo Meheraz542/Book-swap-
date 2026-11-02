@@ -87,7 +87,7 @@ fun ProfileScreen(
     val coroutineScope = rememberCoroutineScope()
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
-    // Media Photo Picker with local compression and Firebase Storage upload
+    // Media Photo Picker with original photo preservation and immediate real-time refresh
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -1340,7 +1340,10 @@ fun ProfileScreen(
                         ) {
                             if (!currentUser.profilePhotoUri.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = currentUser.profilePhotoUri,
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(currentUser.profilePhotoUri.sanitizeMediaUrl())
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = "Profile Photo",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()

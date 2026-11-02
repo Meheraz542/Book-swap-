@@ -26,5 +26,15 @@ service cloud.firestore {
     match /megaDeals/{dealId} {
       allow read, write: if true;
     }
+
+    // Global App Configuration (Maintenance Mode & Force Update)
+    match /app_config/{configId} {
+      allow read, write: if true;
+    }
+
+    // Campus Dispute & Violation Reports
+    match /reports/{reportId} {
+      allow read, write: if true;
+    }
   }
 }

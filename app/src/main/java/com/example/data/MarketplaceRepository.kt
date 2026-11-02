@@ -15,8 +15,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +28,7 @@ import android.util.Log
 import android.net.Uri
 import com.example.data.remote.FirebaseFirestoreManager
 import com.example.data.storage.FirebaseStorageManager
+import com.example.data.storage.ImageStorageManager
 
 object MarketplaceRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -129,6 +133,163 @@ object MarketplaceRepository {
     // App Traffic & Analytics Stats for Admin Panel
     private val _trafficStats = MutableStateFlow(AppTrafficStats())
     val trafficStats: StateFlow<AppTrafficStats> = _trafficStats.asStateFlow()
+
+    // App Controls (Maintenance Mode & Force Update)
+    private val _appConfig = MutableStateFlow(AppConfig())
+    val appConfig: StateFlow<AppConfig> = _appConfig.asStateFlow()
+
+    fun updateAppConfig(config: AppConfig) {
+        _appConfig.value = config
+        scope.launch(Dispatchers.IO) {
+            firestoreManager?.saveAppConfig(config)
+        }
+    }
+
+    // Real-Time Account Revocation Notice (Instant session revocation when user is suspended or blocked)
+    private val _revocationNotice = MutableStateFlow<String?>(null)
+    val revocationNotice: StateFlow<String?> = _revocationNotice.asStateFlow()
+
+    fun clearRevocationNotice() {
+        _revocationNotice.value = null
+    }
+
+    // Reports Desk for Admin Panel
+    private val _reports = MutableStateFlow<List<ReportItem>>(
+        listOf(
+            ReportItem(
+                id = "rep_101",
+                targetType = "LISTING",
+                targetId = "set_sample_1",
+                targetTitle = "Civil Engineering 4th Semester Set",
+                reason = "Incorrect book edition listed; 3rd edition delivered instead of 5th.",
+                reporterName = "Rafiqul Islam",
+                reporterEmail = "rafiqul@fpi.edu.bd",
+                timestamp = "2 hours ago",
+                status = "PENDING"
+            ),
+            ReportItem(
+                id = "rep_102",
+                targetType = "USER",
+                targetId = "usr_sample_2",
+                targetTitle = "Student Seller Profile",
+                reason = "Unresponsive after scheduling campus meetup.",
+                reporterName = "Sumon Barua",
+                reporterEmail = "sumon@fci.edu.bd",
+                timestamp = "Yesterday",
+                status = "PENDING"
+            )
+        )
+    )
+    val reports: StateFlow<List<ReportItem>> = _reports.asStateFlow()
+
+    fun resolveReport(reportId: String) {
+        _reports.update { list ->
+            list.map { if (it.id == reportId) it.copy(status = "RESOLVED") else it }
+        }
+    }
+
+    fun dismissReport(reportId: String) {
+        _reports.update { list ->
+            list.map { if (it.id == reportId) it.copy(status = "DISMISSED") else it }
+        }
+    }
+
+    // Real-Time Firebase Usage Telemetry
+    val firebaseUsageMetrics: StateFlow<FirebaseUsageMetrics> = kotlinx.coroutines.flow.combine(
+        _allUsers,
+        _bookSets,
+        _conversations,
+        _megaDeals
+    ) { users, sets, convs, deals ->
+        val totalDocs = users.size + sets.size + convs.size + deals.size + 1
+        val photoCount = sets.sumOf { it.imageUrls.size + it.includedBooks.sumOf { b -> b.imageUris.size } } +
+                users.count { !it.profilePhotoUri.isNullOrBlank() }
+        val estMb = ((totalDocs * 2.5) + (photoCount * 450.0)) / 1024.0
+        val totalMsgs = convs.sumOf { it.messages.size }
+        val status = if (totalDocs < 50000) "Healthy (Spark Tier)" else "High Volume"
+        FirebaseUsageMetrics(
+            totalDocumentCount = totalDocs,
+            estimatedStorageMb = (estMb * 10.0).toInt() / 10.0,
+            totalUploadedPhotos = photoCount,
+            totalChatMessages = totalMsgs,
+            status = status
+        )
+    }.stateIn(scope, SharingStarted.Eagerly, FirebaseUsageMetrics())
+
+    // Admin User Moderation Actions
+    fun suspendUser(userId: String) {
+        updateUserAccountStatus(userId, "SUSPENDED")
+    }
+
+    fun blockUser(userId: String) {
+        updateUserAccountStatus(userId, "BLOCKED")
+    }
+
+    fun activateUser(userId: String) {
+        updateUserAccountStatus(userId, "ACTIVE")
+    }
+
+    fun updateUserAccountStatus(userId: String, status: String) {
+        _allUsers.update { list ->
+            list.map { if (it.id == userId) it.copy(accountStatus = status) else it }
+        }
+        val cached = _userProfileCache[userId]
+        if (cached != null) {
+            _userProfileCache[userId] = cached.copy(accountStatus = status)
+        }
+        if (_currentUser.value.id == userId) {
+            _currentUser.update { it.copy(accountStatus = status) }
+            if (status != "ACTIVE") {
+                _revocationNotice.value = "Your account has been $status by the administrator. Access has been revoked."
+                logout()
+            }
+        }
+        scope.launch(Dispatchers.IO) {
+            firestoreManager?.updateUserAccountStatus(userId, status)
+        }
+    }
+
+    fun deleteUserAccount(userId: String) {
+        _allUsers.update { list -> list.filterNot { it.id == userId } }
+        _userProfileCache.remove(userId)
+        if (_currentUser.value.id == userId) {
+            _revocationNotice.value = "Your account has been deleted by the administrator."
+            logout()
+        }
+        scope.launch(Dispatchers.IO) {
+            firestoreManager?.deleteUser(userId)
+        }
+    }
+
+    fun deleteUserPortfolioPhoto(userId: String, photoUri: String) {
+        val user = _allUsers.value.find { it.id == userId }
+        if (user != null && user.profilePhotoUri == photoUri) {
+            val updated = user.copy(profilePhotoUri = null)
+            _allUsers.update { list -> list.map { if (it.id == userId) updated else it } }
+            _userProfileCache[userId] = updated
+            if (_currentUser.value.id == userId) {
+                _currentUser.value = updated
+            }
+            scope.launch(Dispatchers.IO) {
+                firestoreManager?.saveUserProfile(updated)
+            }
+        }
+        _bookSets.update { sets ->
+            sets.map { set ->
+                if (set.sellerId == userId && (photoUri in set.imageUrls || set.includedBooks.any { photoUri in it.imageUris })) {
+                    val newCovers = set.imageUrls.filterNot { it == photoUri }
+                    val newBooks = set.includedBooks.map { b ->
+                        b.copy(imageUris = b.imageUris.filterNot { it == photoUri })
+                    }
+                    val updatedSet = set.copy(imageUrls = newCovers, includedBooks = newBooks)
+                    scope.launch(Dispatchers.IO) {
+                        firestoreManager?.publishBookSet(updatedSet)
+                    }
+                    updatedSet
+                } else set
+            }
+        }
+    }
 
     // Single source of truth in-memory cache for user profiles across messaging and app
     private val _userProfileCache = java.util.concurrent.ConcurrentHashMap<String, UserProfile>()
@@ -432,7 +593,10 @@ object MarketplaceRepository {
                     conversationsReg = null
                     if (user.id.isNotBlank()) {
                         userProfileReg = firestore.listenUserProfile(user.id) { updatedProfile ->
-                            if (updatedProfile != _currentUser.value) {
+                            if (updatedProfile.accountStatus != "ACTIVE") {
+                                _revocationNotice.value = "Your account has been ${updatedProfile.accountStatus.lowercase()} by the administrator. Access has been revoked."
+                                logout()
+                            } else if (updatedProfile != _currentUser.value) {
                                 propagateUserProfileUpdates(updatedProfile)
                                 Log.d("MarketplaceRepo", "Real-time user profile updated: ${updatedProfile.name}")
                             }
@@ -523,6 +687,15 @@ object MarketplaceRepository {
             }
         } catch (e: Exception) {
             Log.e("MarketplaceRepo", "Failed to start Firestore listeners", e)
+        }
+
+        // Real-Time Cloud Firestore Listener for App Controls (/app_config/global)
+        try {
+            firestore.listenAppConfig { config ->
+                _appConfig.value = config
+            }
+        } catch (e: Exception) {
+            Log.e("MarketplaceRepo", "Failed to start AppConfig listener", e)
         }
 
         scope.launch(Dispatchers.IO) {
@@ -744,13 +917,6 @@ object MarketplaceRepository {
         val user = _currentUser.value
         val newId = "set_" + UUID.randomUUID().toString().take(8)
 
-        val coverRes = coverDrawableRes ?: when (technology) {
-            Technology.CIVIL, Technology.AIDT -> R.drawable.book_cover_civil_1789677775416
-            Technology.ELECTRICAL, Technology.TELECOM -> R.drawable.book_cover_elec_1789677789123
-            Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
-            Technology.CSE -> R.drawable.book_cover_cse_1789735549141
-        }
-
         val newSet = BookSet(
             id = newId,
             sellerId = user.id,
@@ -769,7 +935,7 @@ object MarketplaceRepository {
             overallCondition = overallCondition,
             description = description,
             includedBooks = includedBooks,
-            coverDrawableRes = coverRes,
+            coverDrawableRes = if (imageUrls.isNotEmpty()) null else coverDrawableRes,
             imageUrls = imageUrls,
             status = SetStatus.AVAILABLE
         )
@@ -799,7 +965,7 @@ object MarketplaceRepository {
                             val uploadedCovers = imageUrls.mapIndexed { idx, url ->
                                 if (url.startsWith("file:") || url.startsWith("content:")) {
                                     try {
-                                        FirebaseStorageManager.compressAndUploadBookImage(
+                                        FirebaseStorageManager.uploadOriginalBookImage(
                                             context, newId, idx, android.net.Uri.parse(url)
                                         )
                                     } catch (_: Exception) { url }
@@ -810,7 +976,7 @@ object MarketplaceRepository {
                                 val uploadedUris = book.imageUris.mapIndexed { imgIdx, u ->
                                     if (u.startsWith("file:") || u.startsWith("content:")) {
                                         try {
-                                            FirebaseStorageManager.compressAndUploadBookImage(
+                                            FirebaseStorageManager.uploadOriginalBookImage(
                                                 context, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
                                             )
                                         } catch (_: Exception) { u }
@@ -1302,7 +1468,8 @@ object MarketplaceRepository {
                         sellerCollege = updated.college,
                         sellerTech = updated.technology.displayName,
                         sellerSem = updated.currentSemester.displayName,
-                        sellerPhone = updated.phone
+                        sellerPhone = updated.phone,
+                        sellerAvatarUri = updated.profilePhotoUri ?: set.sellerAvatarUri
                     )
                 } else {
                     set
@@ -1489,9 +1656,10 @@ object MarketplaceRepository {
                     return@launch
                 }
 
+                // Upload exact original photos without any compression, conversion, or resizing
                 val uploadedUrls = newPhotoUris.mapIndexed { idx, uri ->
                     val photoIndex = currentSet.imageUrls.size + idx
-                    FirebaseStorageManager.compressAndUploadBookImage(
+                    FirebaseStorageManager.uploadOriginalBookImage(
                         context = context,
                         setId = setId,
                         photoIndex = photoIndex,
@@ -1515,13 +1683,13 @@ object MarketplaceRepository {
 
                 // 3. Publish to Cloud Firestore to notify all real-time listeners across all devices
                 firestoreManager?.publishBookSet(updatedSet)
-                Log.d("MarketplaceRepo", "Uploaded ${uploadedUrls.size} photos for bookSet $setId and synced in real-time")
+                Log.d("MarketplaceRepo", "Uploaded ${uploadedUrls.size} original photos for bookSet $setId and synced in real-time")
 
                 withContext(Dispatchers.Main) {
                     onComplete?.invoke(true)
                 }
             } catch (e: Exception) {
-                Log.e("MarketplaceRepo", "Failed to upload photos for book $setId", e)
+                Log.e("MarketplaceRepo", "Failed to upload original photos for book $setId", e)
                 withContext(Dispatchers.Main) {
                     onComplete?.invoke(false)
                 }
@@ -1530,10 +1698,9 @@ object MarketplaceRepository {
     }
 
     /**
-     * Compresses the selected image locally to optimize bandwidth,
-     * securely uploads it to Firebase Cloud Storage,
-     * immediately retrieves the secure download URL and updates the user's document in Cloud Firestore,
-     * propagating real-time updates across the app.
+     * Stores and uploads the user's exact original profile picture without any compression,
+     * resizing, or format conversion, immediately refreshing the active session across the UI
+     * without restarting the app.
      */
     fun uploadAndSyncProfilePhoto(context: Context, uri: Uri, onComplete: ((Boolean) -> Unit)? = null) {
         val current = _currentUser.value
@@ -1544,11 +1711,18 @@ object MarketplaceRepository {
 
         scope.launch {
             try {
-                val downloadUrl = FirebaseStorageManager.compressAndUploadProfileImage(context, current.id, uri)
-                updateProfilePhotoUri(downloadUrl)
+                // 1. Instantly store exact original image locally and update session so UI refreshes in 0ms
+                val localPersistentUri = ImageStorageManager.saveAvatarLocally(context, uri)
+                updateProfilePhotoUri(localPersistentUri)
+
+                // 2. Upload exact original bytes to Firebase Cloud Storage in background
+                val downloadUrl = FirebaseStorageManager.uploadOriginalProfileImage(context, current.id, uri)
+                if (downloadUrl.isNotBlank() && downloadUrl != localPersistentUri) {
+                    updateProfilePhotoUri(downloadUrl)
+                }
                 onComplete?.invoke(true)
             } catch (e: Exception) {
-                Log.e("MarketplaceRepo", "Failed to compress, upload, and sync profile photo", e)
+                Log.e("MarketplaceRepo", "Failed to upload and sync original profile photo", e)
                 onComplete?.invoke(false)
             }
         }
