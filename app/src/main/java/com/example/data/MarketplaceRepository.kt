@@ -291,6 +291,26 @@ object MarketplaceRepository {
         }
     }
 
+    /**
+     * Direct sign-in for Super Admin (mdmaheraz65@gmail.com) to access Upgraded Mode.
+     */
+    fun loginAsAdminDirectly() {
+        _currentUser.value = defaultAdminProfile
+        _isLoggedIn.value = true
+        _userProfileCache[defaultAdminProfile.id] = defaultAdminProfile
+        database?.let { db ->
+            scope.launch(Dispatchers.IO) {
+                val existing = db.userDao().getUserByEmail(defaultAdminProfile.email)
+                if (existing != null) {
+                    db.userDao().switchActiveSession(existing.id)
+                } else {
+                    db.userDao().insertUser(defaultAdminProfile.toEntity().copy(isCurrentSession = true))
+                    db.userDao().switchActiveSession(defaultAdminProfile.id)
+                }
+            }
+        }
+    }
+
     // Single source of truth in-memory cache for user profiles across messaging and app
     private val _userProfileCache = java.util.concurrent.ConcurrentHashMap<String, UserProfile>()
 

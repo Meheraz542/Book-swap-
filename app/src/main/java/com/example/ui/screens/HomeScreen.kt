@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Computer
@@ -1504,20 +1505,27 @@ fun BookSetCardHorizontal(
                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                         .data(coverUrl)
                         .crossfade(true)
+                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                         .build(),
                     contentDescription = set.title,
                     contentScale = ContentScale.Crop,
-                    placeholder = painterResource(id = set.effectiveCoverDrawableRes),
-                    error = painterResource(id = set.effectiveCoverDrawableRes),
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                Image(
-                    painter = painterResource(id = set.effectiveCoverDrawableRes),
-                    contentDescription = set.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFF1F5F9)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoStories,
+                        contentDescription = "No photo",
+                        tint = PrimaryPurple.copy(alpha = 0.5f),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
             }
 
             // Top Left Condition Badge
@@ -1656,20 +1664,30 @@ fun BookSetCardVertical(
                 val coverUrl = set.primaryCoverUrl
                 if (!coverUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = coverUrl,
+                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(coverUrl)
+                            .crossfade(true)
+                            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .build(),
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
-                        placeholder = painterResource(id = set.effectiveCoverDrawableRes),
-                        error = painterResource(id = set.effectiveCoverDrawableRes),
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Image(
-                        painter = painterResource(id = set.effectiveCoverDrawableRes),
-                        contentDescription = set.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFF1F5F9)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoStories,
+                            contentDescription = "No photo",
+                            tint = PrimaryPurple.copy(alpha = 0.5f),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
 
                 Surface(

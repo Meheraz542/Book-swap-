@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreVert
@@ -517,20 +518,27 @@ fun ChatScreen(
                                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                             .data(coverUrl.sanitizeMediaUrl())
                                             .crossfade(true)
+                                            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                                             .build(),
                                         contentDescription = referencedSet.title,
                                         contentScale = ContentScale.Crop,
-                                        placeholder = painterResource(id = referencedSet.effectiveCoverDrawableRes),
-                                        error = painterResource(id = referencedSet.effectiveCoverDrawableRes),
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
-                                    Image(
-                                        painter = painterResource(id = referencedSet.effectiveCoverDrawableRes),
-                                        contentDescription = referencedSet.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color(0xFFF1F5F9)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.AutoStories,
+                                            contentDescription = "No photo",
+                                            tint = PrimaryPurple.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.width(10.dp))

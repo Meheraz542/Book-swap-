@@ -7,9 +7,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.example.model.primaryCoverUrl
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class ExampleRobolectricTest {
 
   @Test
@@ -160,6 +161,55 @@ class ExampleRobolectricTest {
     // When marked as sold, it is immediately removed from the active listings to conserve storage
     com.example.data.MarketplaceRepository.markSetAsSold(null, published.id)
     org.junit.Assert.assertFalse(com.example.data.MarketplaceRepository.bookSets.value.any { it.id == published.id })
+  }
+
+  @Test
+  fun `seller uploaded book images map correctly to buyer UI and persist across app restart`() = kotlinx.coroutines.test.runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    com.example.data.MarketplaceRepository.initialize(context)
+
+    val testCoverUrl = "https://firebasestorage.googleapis.com/v0/b/app/o/book_sets%2Fset_101%2Fcover.jpg?alt=media"
+    val testBook1Photo = "https://firebasestorage.googleapis.com/v0/b/app/o/book_sets%2Fset_101%2Fbook_0.jpg?alt=media"
+
+    val book1 = com.example.model.IncludedBook(
+        id = "b_1",
+        setId = "set_101",
+        bookName = "Data Structures",
+        subject = "CSE",
+        author = "Tanenbaum",
+        edition = "3rd",
+        condition = "Like New",
+        imageUris = listOf(testBook1Photo)
+    )
+
+    // Seller publishes book set with custom uploaded cover photo and book photos
+    val published = com.example.data.MarketplaceRepository.publishSet(
+        title = "Complete 3rd Semester CSE Book Set",
+        subject = "Computer Science",
+        technology = com.example.model.Technology.CSE,
+        semester = com.example.model.Semester.SEM_3,
+        college = "Feni Computer Institute",
+        totalPrice = 550,
+        overallCondition = com.example.model.SetCondition.LIKE_NEW,
+        description = "All books in mint condition with seller original photos.",
+        includedBooks = listOf(book1),
+        imageUrls = listOf(testCoverUrl)
+    )
+
+    // Verify buyer card mapping
+    org.junit.Assert.assertEquals(testCoverUrl, published.primaryCoverUrl)
+    org.junit.Assert.assertEquals(1, published.imageUrls.size)
+    org.junit.Assert.assertEquals(testCoverUrl, published.imageUrls.first())
+    org.junit.Assert.assertEquals(testBook1Photo, published.includedBooks.first().imageUris.first())
+
+    // Verify persistence across restart
+    val db = com.example.data.local.AppDatabase.getInstance(context)
+    val setWithBooks = db.bookSetDao().getBookSetWithBooksById(published.id)
+    org.junit.Assert.assertNotNull(setWithBooks)
+    org.junit.Assert.assertEquals(published.id, setWithBooks?.bookSet?.id)
+    org.junit.Assert.assertTrue(setWithBooks?.bookSet?.imageUrlsString?.contains("cover.jpg") == true)
+    org.junit.Assert.assertEquals(1, setWithBooks?.books?.size)
+    org.junit.Assert.assertEquals(testBook1Photo, setWithBooks?.books?.first()?.image1Uri)
   }
 }
 

@@ -44,7 +44,7 @@ import com.example.ui.components.FloatingBottomNavBar
 import com.example.ui.components.InAppNotificationBanner
 import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.screens.*
-import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 
 sealed class AppDestination {
@@ -110,22 +110,67 @@ fun MainApp() {
     }
 
     val isAdmin = currentUser.role == "ADMIN" || currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
-    val isVersionOutdated = remember(appConfig.latestAppVersion) {
-        val installed = "1.0"
-        val instParts = installed.split(".").mapNotNull { it.toIntOrNull() }
-        val targetParts = appConfig.latestAppVersion.split(".").mapNotNull { it.toIntOrNull() }
-        val maxLen = maxOf(instParts.size, targetParts.size)
-        var outdated = false
-        for (i in 0 until maxLen) {
-            val inst = instParts.getOrElse(i) { 0 }
-            val targ = targetParts.getOrElse(i) { 0 }
-            if (inst < targ) { outdated = true; break }
-            if (inst > targ) { outdated = false; break }
-        }
-        outdated
-    }
-    val isForceUpdateActive = appConfig.isForceUpdate && isVersionOutdated
+    
+    // When forcefully update option is given, ONLY Admin (mdmaheraz65@gmail.com) can access upgraded mode; all other users are blocked.
+    val isForceUpdateActive = appConfig.isForceUpdate && !isAdmin
     val isMaintenanceActive = appConfig.isMaintenanceMode && !isAdmin
+    var showAdminLoginDialog by remember { mutableStateOf(false) }
+
+    // Admin Upgraded Mode Access Dialog
+    if (showAdminLoginDialog) {
+        AlertDialog(
+            onDismissRequest = { showAdminLoginDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Shield,
+                        contentDescription = null,
+                        tint = Color(0xFF2563EB)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Admin Upgraded Access", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Upgraded Mode is active. Only administrator (mdmaheraz65@gmail.com) has access while force update is enabled for all other users.",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = PrimaryPurpleLight,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Admin Account: mdmaheraz65@gmail.com",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryPurple,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        MarketplaceRepository.loginAsAdminDirectly()
+                        showAdminLoginDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+                ) {
+                    Text("Enter as Admin", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAdminLoginDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Crossfade(
         targetState = isAppLoading,
@@ -144,6 +189,9 @@ fun MainApp() {
                     } catch (e: Exception) {
                         android.util.Log.e("MainActivity", "Failed to open update URL", e)
                     }
+                },
+                onAdminLoginClick = {
+                    showAdminLoginDialog = true
                 }
             )
         } else if (isMaintenanceActive) {
@@ -177,15 +225,17 @@ fun MainApp() {
                     }
                 }
 
-                // If Admin bypasses maintenance mode, display top notification pill
-                if (isAdmin && appConfig.isMaintenanceMode) {
+                // If Admin accesses upgraded mode or bypasses maintenance, display top notification pill
+                if (isAdmin && (appConfig.isMaintenanceMode || appConfig.isForceUpdate)) {
+                    val isUpgradeMode = appConfig.isForceUpdate
+                    val pillColor = if (isUpgradeMode) Color(0xFF2563EB) else Color(0xFFF59E0B)
                     Surface(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(top = 8.dp),
                         shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFFF59E0B),
+                        color = pillColor,
                         shadowElevation = 6.dp
                     ) {
                         Row(
@@ -193,15 +243,15 @@ fun MainApp() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Build,
+                                imageVector = if (isUpgradeMode) Icons.Outlined.Shield else Icons.Outlined.Build,
                                 contentDescription = null,
-                                tint = Color.Black,
+                                tint = Color.White,
                                 modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Maintenance Mode Active • Admin Bypass",
-                                color = Color.Black,
+                                text = if (isUpgradeMode) "Upgraded Mode Active • Admin Access (mdmaheraz65@gmail.com)" else "Maintenance Mode Active • Admin Bypass",
+                                color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -325,7 +375,8 @@ fun MaintenanceModeScreen(
 @Composable
 fun ForceUpdateScreen(
     appConfig: com.example.model.AppConfig,
-    onUpdateClick: () -> Unit
+    onUpdateClick: () -> Unit,
+    onAdminLoginClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -424,6 +475,26 @@ fun ForceUpdateScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Update Now", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            OutlinedButton(
+                onClick = onAdminLoginClick,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = Color(0xFF94A3B8),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Admin Upgraded Access (mdmaheraz65@gmail.com)", color = Color(0xFF94A3B8), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

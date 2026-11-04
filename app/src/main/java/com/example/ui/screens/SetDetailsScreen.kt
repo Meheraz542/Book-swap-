@@ -55,14 +55,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
-import com.example.R
 import com.example.data.MarketplaceRepository
 import com.example.model.BookSet
 import com.example.model.SetStatus
@@ -115,7 +113,6 @@ fun SetDetailsScreen(
     val dynamicSellerSem = effectiveSeller?.currentSemester?.displayName?.takeIf { it.isNotBlank() } ?: currentSet.sellerSem
     val dynamicSellerPhone = effectiveSeller?.phone?.takeIf { it.isNotBlank() } ?: currentSet.sellerPhone
     val dynamicSellerAvatarUri = (effectiveSeller?.profilePhotoUri ?: currentSet.sellerAvatarUri)?.sanitizeMediaUrl()
-    val sellerAvatarRes = effectiveSeller?.profilePhotoRes
     val isOwner = currentUser.id == currentSet.sellerId || (currentSet.sellerEmail.isNotBlank() && currentUser.email.equals(currentSet.sellerEmail, ignoreCase = true))
     val isAdmin = currentUser.role == "ADMIN" || currentUser.email.equals("mdmaheraz65@gmail.com", ignoreCase = true)
     val canDelete = isOwner || isAdmin
@@ -146,25 +143,30 @@ fun SetDetailsScreen(
         }
     }
 
+    // Aggregates all uploaded photos: primary cover, set image URLs, individual included book cover photos, and live uploads
     val allUploadedPhotos = remember(currentSet, optimisticPhotos) {
         val list = mutableListOf<String>()
-        // 1. Explicit set cover / image URLs
+
+        // 1. Primary main cover photo at index 0 if available
+        currentSet.primaryCoverUrl?.takeIf { it.isNotBlank() }?.let { primary ->
+            val clean = primary.sanitizeMediaUrl() ?: primary
+            if (clean.isNotBlank()) list.add(clean)
+        }
+
+        // 2. Explicit set cover / image URLs
         currentSet.imageUrls.filter { it.isNotBlank() }.forEach { rawUri ->
             val clean = rawUri.sanitizeMediaUrl() ?: rawUri
             if (clean.isNotBlank() && clean !in list) list.add(clean)
         }
-        // 2. Individual included book front cover photos
+
+        // 3. Individual included book front cover photos
         currentSet.includedBooks.forEach { book ->
             book.imageUris.filter { it.isNotBlank() }.forEach { rawUri ->
                 val clean = rawUri.sanitizeMediaUrl() ?: rawUri
                 if (clean.isNotBlank() && clean !in list) list.add(clean)
             }
         }
-        // 3. Primary cover URL fallback if not already present
-        currentSet.primaryCoverUrl?.takeIf { it.isNotBlank() }?.let { primary ->
-            val clean = primary.sanitizeMediaUrl() ?: primary
-            if (clean.isNotBlank() && clean !in list) list.add(0, clean)
-        }
+
         // 4. Optimistic real-time uploads
         optimisticPhotos.filter { it.isNotBlank() }.forEach { rawUri ->
             val clean = rawUri.sanitizeMediaUrl() ?: rawUri
@@ -382,11 +384,17 @@ fun SetDetailsScreen(
                                     color = Color.Black.copy(alpha = 0.65f),
                                     modifier = Modifier.align(Alignment.TopStart)
                                 ) {
+                                    val matchingBook = currentSet.includedBooks.find { b ->
+                                        b.imageUris.any { u -> u.sanitizeMediaUrl() == sanitizedPhoto }
+                                    }
+                                    val heroTag = if (selectedPhotoIndex == 0) "★ Main Cover" else (matchingBook?.bookName?.let { "📖 $it" } ?: "Book Cover ${selectedPhotoIndex + 1}")
                                     Text(
-                                        text = if (selectedPhotoIndex == 0) "★ Main Cover" else "Book Cover ${selectedPhotoIndex + 1}",
+                                        text = heroTag,
                                         color = Color.White,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                                     )
                                 }
@@ -587,6 +595,7 @@ fun SetDetailsScreen(
                                     modifier = Modifier.clickable {
                                         selectedPhotoIndex = idx
                                         viewingPhotoIndex = idx
+                                        viewingPhotoFullscreen = photoUri.sanitizeMediaUrl()
                                     }
                                 ) {
                                     Surface(
@@ -631,12 +640,17 @@ fun SetDetailsScreen(
                                             }
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                    val matchingBook = currentSet.includedBooks.find { b ->
+                                        b.imageUris.any { u -> u.sanitizeMediaUrl() == photoUri.sanitizeMediaUrl() }
+                                    }
+                                    val photoLabel = if (idx == 0) "Main Cover" else (matchingBook?.bookName?.take(14) ?: "Photo ${idx + 1}")
                                     Text(
-                                        text = if (idx == 0) "Main Cover" else "Photo ${idx + 1}",
+                                        text = photoLabel,
                                         fontSize = 10.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) PrimaryPurple else TextMuted
+                                        color = if (isSelected) PrimaryPurple else TextMuted,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -891,7 +905,9 @@ fun SetDetailsScreen(
 
             itemsIndexed(currentSet.includedBooks) { index, book ->
                 val primaryBookPhoto = book.imageUris.firstOrNull { it.isNotBlank() }
-                val sanitizedBookPhoto = primaryBookPhoto.sanitizeMediaUrl()
+                    ?: allUploadedPhotos.getOrNull(index + (if (currentSet.imageUrls.isNotEmpty()) 1 else 0))
+                    ?: allUploadedPhotos.getOrNull(index)
+                val sanitizedBookPhoto = primaryBookPhoto?.sanitizeMediaUrl()
 
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -914,7 +930,7 @@ fun SetDetailsScreen(
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable {
                                     if (!sanitizedBookPhoto.isNullOrBlank()) {
-                                        val foundIdx = allUploadedPhotos.indexOf(sanitizedBookPhoto)
+                                        val foundIdx = allUploadedPhotos.indexOfFirst { it.sanitizeMediaUrl() == sanitizedBookPhoto }
                                         if (foundIdx >= 0) {
                                             selectedPhotoIndex = foundIdx
                                             viewingPhotoIndex = foundIdx
@@ -1015,7 +1031,7 @@ fun SetDetailsScreen(
                         IconButton(
                             onClick = {
                                 if (!sanitizedBookPhoto.isNullOrBlank()) {
-                                    val foundIdx = allUploadedPhotos.indexOf(primaryBookPhoto ?: sanitizedBookPhoto)
+                                    val foundIdx = allUploadedPhotos.indexOfFirst { it.sanitizeMediaUrl() == sanitizedBookPhoto }
                                     if (foundIdx >= 0) {
                                         selectedPhotoIndex = foundIdx
                                         viewingPhotoIndex = foundIdx
@@ -1046,15 +1062,15 @@ fun SetDetailsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Seller Avatar with real-time dynamic propagation
+                        // Seller Avatar with real-time dynamic propagation (No demo photos)
                         Surface(
                             modifier = Modifier
                                 .size(54.dp)
                                 .clip(CircleShape),
                             shape = CircleShape,
-                            color = Color(0xFFE2E8F0)
+                            color = PrimaryPurpleLight
                         ) {
-                            if (!dynamicSellerAvatarUri.isNullOrBlank()) {
+                            if (!dynamicSellerAvatarUri.isNullOrBlank() && !dynamicSellerAvatarUri.contains("default_avatar")) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(dynamicSellerAvatarUri)
@@ -1066,20 +1082,13 @@ fun SetDetailsScreen(
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
-                            } else if (sellerAvatarRes != null) {
-                                Image(
-                                    painter = painterResource(id = sellerAvatarRes),
-                                    contentDescription = "Seller Profile Picture",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
                             } else {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Person,
-                                        contentDescription = "Seller Avatar",
-                                        tint = Color(0xFF94A3B8),
-                                        modifier = Modifier.size(30.dp)
+                                    Text(
+                                        text = dynamicSellerName.take(1).uppercase(),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryPurple
                                     )
                                 }
                             }
@@ -1220,21 +1229,71 @@ fun SetDetailsScreen(
                     .background(Color.Black.copy(alpha = 0.95f)),
                 contentAlignment = Alignment.Center
             ) {
-                // Main High-Res Image
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(viewingPhotoFullscreen.sanitizeMediaUrl())
-                        .crossfade(true)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    contentDescription = "Full photo",
-                    contentScale = ContentScale.Fit,
+                var isImageLoading by remember(viewingPhotoFullscreen) { mutableStateOf(true) }
+                var isImageError by remember(viewingPhotoFullscreen) { mutableStateOf(false) }
+
+                // Main High-Res Image with loading and fallback
+                Box(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
                         .fillMaxHeight(0.78f)
-                        .clip(RoundedCornerShape(16.dp))
-                )
+                        .clip(RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isImageLoading) {
+                        CircularProgressIndicator(
+                            color = PrimaryPurple,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(44.dp)
+                        )
+                    }
+
+                    if (isImageError) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoStories,
+                                contentDescription = "Photo unavailable",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Photo temporarily unavailable",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(viewingPhotoFullscreen.sanitizeMediaUrl())
+                            .crossfade(true)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = "Full photo",
+                        contentScale = ContentScale.Fit,
+                        onLoading = {
+                            isImageLoading = true
+                            isImageError = false
+                        },
+                        onSuccess = {
+                            isImageLoading = false
+                            isImageError = false
+                        },
+                        onError = {
+                            isImageLoading = false
+                            isImageError = true
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 // Top Bar with Counter and Close Button
                 Row(

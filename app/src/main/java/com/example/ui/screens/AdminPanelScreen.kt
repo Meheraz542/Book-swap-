@@ -1142,23 +1142,23 @@ private fun AdminAppControlsSection(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Force App Update", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Force App Update (Upgraded Mode)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (isForceUpdate) Color(0xFFF59E0B).copy(alpha = 0.12f) else Color(0xFF64748B).copy(alpha = 0.12f)
+                                color = if (isForceUpdate) Color(0xFF2563EB).copy(alpha = 0.12f) else Color(0xFF64748B).copy(alpha = 0.12f)
                             ) {
                                 Text(
-                                    text = if (isForceUpdate) "ENFORCED" else "OPTIONAL",
+                                    text = if (isForceUpdate) "UPGRADED (ADMIN ONLY)" else "OFF",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isForceUpdate) Color(0xFFF59E0B) else Color(0xFF64748B),
+                                    color = if (isForceUpdate) Color(0xFF2563EB) else Color(0xFF64748B),
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
                         Text(
-                            "Forces users on older versions (< Latest Version) to download the new APK before proceeding.",
+                            "When enabled, ONLY Admin (mdmaheraz65@gmail.com) can access the upgraded app mode. All other users are blocked by the mandatory update screen.",
                             fontSize = 11.5.sp,
                             color = TextMuted
                         )
@@ -1167,7 +1167,7 @@ private fun AdminAppControlsSection(
                     Switch(
                         checked = isForceUpdate,
                         onCheckedChange = { isForceUpdate = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryPurple)
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF2563EB))
                     )
                 }
 
