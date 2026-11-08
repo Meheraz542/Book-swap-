@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // 1. Book Listing Photos: Completely public read for all buyers, students & guests across all devices.
+    // Upload & modification requires an authenticated user.
+    match /book_images/{imageFile} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Recursive match in case nested sub-paths are used (e.g., book_images/{setId}/{imageFile})
+    match /book_images/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // 2. User Profile Avatars: Public read for campus community, authenticated write
+    match /profile_images/{imageFile} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /profile_images/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // 3. Fallback catch-all for any other media paths
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}

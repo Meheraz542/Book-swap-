@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -19,6 +20,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -1267,8 +1271,24 @@ fun SetDetailsScreen(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    isImageError = false
+                                    isImageLoading = true
+                                    coil.Coil.imageLoader(context).memoryCache?.clear()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Retry Loading", fontSize = 12.sp, color = Color.White)
+                            }
                         }
                     }
+
+                    var scale by remember(viewingPhotoFullscreen) { mutableFloatStateOf(1f) }
+                    var offsetX by remember(viewingPhotoFullscreen) { mutableFloatStateOf(0f) }
+                    var offsetY by remember(viewingPhotoFullscreen) { mutableFloatStateOf(0f) }
 
                     AsyncImage(
                         model = ImageRequest.Builder(context)
@@ -1276,6 +1296,7 @@ fun SetDetailsScreen(
                             .crossfade(true)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .memoryCachePolicy(CachePolicy.ENABLED)
+                            .networkCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = "Full photo",
                         contentScale = ContentScale.Fit,
@@ -1287,11 +1308,33 @@ fun SetDetailsScreen(
                             isImageLoading = false
                             isImageError = false
                         },
-                        onError = {
+                        onError = { errorResult ->
+                            Log.w("SetDetailsScreen", "Failed to render fullscreen photo: ${viewingPhotoFullscreen.sanitizeMediaUrl()}", errorResult.result.throwable)
                             isImageLoading = false
                             isImageError = true
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(viewingPhotoFullscreen) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    scale = (scale * zoom).coerceIn(1f, 4f)
+                                    if (scale > 1f) {
+                                        val maxPanX = (size.width * (scale - 1)) / 2f
+                                        val maxPanY = (size.height * (scale - 1)) / 2f
+                                        offsetX = (offsetX + pan.x).coerceIn(-maxPanX, maxPanX)
+                                        offsetY = (offsetY + pan.y).coerceIn(-maxPanY, maxPanY)
+                                    } else {
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    }
+                                }
+                            }
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offsetX
+                                translationY = offsetY
+                            }
                     )
                 }
 

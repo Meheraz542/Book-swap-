@@ -17,30 +17,41 @@ class MarketplaceApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         initFirebase()
+        val imageLoader = newImageLoader()
+        coil.Coil.setImageLoader(imageLoader)
         MarketplaceRepository.initialize(this)
     }
 
     override fun newImageLoader(): ImageLoader {
         val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
             .build()
 
         return ImageLoader.Builder(this)
             .okHttpClient(okHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.30)
+                    .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("marketplace_image_cache"))
-                    .maxSizeBytes(100L * 1024 * 1024)
+                    .maxSizeBytes(150L * 1024 * 1024)
                     .build()
             }
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .components {
+                add(com.example.util.Base64DataUriFetcher.Factory())
+            }
             .crossfade(true)
             .respectCacheHeaders(false)
             .build()

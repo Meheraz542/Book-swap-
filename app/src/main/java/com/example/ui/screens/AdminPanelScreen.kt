@@ -258,21 +258,23 @@ fun AdminPanelScreen(
         AddListingDialog(
             onDismiss = { showAddListingDialog = false },
             onAddListing = { title, subject, tech, sem, college, price, sellerName, sellerPhone ->
-                MarketplaceRepository.publishSet(
-                    title = title,
-                    subject = subject,
-                    technology = tech,
-                    semester = sem,
-                    college = college,
-                    totalPrice = price,
-                    overallCondition = SetCondition.GOOD,
-                    description = "Verified campus semester book set",
-                    includedBooks = listOf(
-                        IncludedBook("bk_1", "", "$title (Book 1)", subject, "Standard Author", "Latest", "SUB-101")
+                coroutineScope.launch {
+                    MarketplaceRepository.publishSet(
+                        title = title,
+                        subject = subject,
+                        technology = tech,
+                        semester = sem,
+                        college = college,
+                        totalPrice = price,
+                        overallCondition = SetCondition.GOOD,
+                        description = "Verified campus semester book set",
+                        includedBooks = listOf(
+                            IncludedBook("bk_1", "", "$title (Book 1)", subject, "Standard Author", "Latest", "SUB-101")
+                        )
                     )
-                )
+                    Toast.makeText(context, "Verified listing published", Toast.LENGTH_SHORT).show()
+                }
                 showAddListingDialog = false
-                Toast.makeText(context, "Verified listing published", Toast.LENGTH_SHORT).show()
             }
         )
     }

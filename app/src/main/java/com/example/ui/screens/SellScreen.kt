@@ -181,6 +181,8 @@ fun SellScreen(
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPublished by remember { mutableStateOf(false) }
+    var isPublishing by remember { mutableStateOf(false) }
+    var publishingStatus by remember { mutableStateOf("Uploading photos & publishing...") }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -801,36 +803,93 @@ fun SellScreen(
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     GlassButton(
-                        text = "Publish Book Set",
+                        text = if (isPublishing) "Publishing..." else "Publish Book Set",
                         onClick = {
                             val price = totalPriceText.toIntOrNull()
                             if (includedBooks.isEmpty()) {
                                 errorMessage = "Please include at least one book in this set."
                             } else if (price == null || price <= 0) {
                                 errorMessage = "Please enter a valid price (Tk)."
-                            } else {
+                            } else if (!isPublishing) {
                                 errorMessage = null
+                                isPublishing = true
                                 val autoTitle = "${selectedTech.displayName} ${selectedSem.shortName} Semester Set (${includedBooks.size} Books)"
                                 val autoSubject = selectedTech.displayName
-                                val newSet = MarketplaceRepository.publishSet(
-                                    title = autoTitle,
-                                    subject = autoSubject,
-                                    technology = selectedTech,
-                                    semester = selectedSem,
-                                    college = college,
-                                    totalPrice = price,
-                                    overallCondition = overallCondition,
-                                    description = description.ifBlank { "Complete ${selectedSem.displayName} set for ${selectedTech.displayName} in ${overallCondition.label.lowercase()} condition." },
-                                    includedBooks = includedBooks,
-                                    imageUrls = coverPhotoUri?.let { listOf(it) } ?: emptyList()
-                                )
-                                isPublished = true
-                                onPublishSuccess(newSet)
+
+                                coroutineScope.launch {
+                                    try {
+                                        val newSet = MarketplaceRepository.publishSet(
+                                            title = autoTitle,
+                                            subject = autoSubject,
+                                            technology = selectedTech,
+                                            semester = selectedSem,
+                                            college = college,
+                                            totalPrice = price,
+                                            overallCondition = overallCondition,
+                                            description = description.ifBlank { "Complete ${selectedSem.displayName} set for ${selectedTech.displayName} in ${overallCondition.label.lowercase()} condition." },
+                                            includedBooks = includedBooks,
+                                            imageUrls = coverPhotoUri?.let { listOf(it) } ?: emptyList(),
+                                            onProgress = { status -> publishingStatus = status }
+                                        )
+                                        isPublished = true
+                                        onPublishSuccess(newSet)
+                                    } catch (e: Exception) {
+                                        errorMessage = "Failed to publish listing: ${e.localizedMessage ?: "Unknown error"}"
+                                    } finally {
+                                        isPublishing = false
+                                    }
+                                }
                             }
                         },
+                        enabled = !isPublishing,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("btn_publish_set")
+                    )
+                }
+            }
+        }
+    }
+
+    // Publishing Progress Modal Dialog
+    if (isPublishing) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { /* Cannot dismiss while uploading */ },
+            properties = androidx.compose.ui.window.DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            )
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White,
+                shadowElevation = 12.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        color = PrimaryPurple,
+                        strokeWidth = 3.5.dp,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(
+                        text = "Publishing Book Set",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = publishingStatus,
+                        fontSize = 13.sp,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
                     )
                 }
             }

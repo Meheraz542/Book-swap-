@@ -921,7 +921,7 @@ object MarketplaceRepository {
     }
 
     // Publish New Book Set
-    fun publishSet(
+    suspend fun publishSet(
         title: String,
         subject: String,
         technology: Technology,
@@ -932,10 +932,56 @@ object MarketplaceRepository {
         description: String,
         includedBooks: List<IncludedBook>,
         coverDrawableRes: Int? = null,
-        imageUrls: List<String> = emptyList()
-    ): BookSet {
+        imageUrls: List<String> = emptyList(),
+        onProgress: ((String) -> Unit)? = null
+    ): BookSet = withContext(Dispatchers.IO) {
         val user = _currentUser.value
         val newId = "set_" + UUID.randomUUID().toString().take(8)
+        val context = appContext
+
+        // Upload photos to Firebase Storage before publishing so that remote HTTPS URLs are saved to Firestore
+        var uploadedCovers = imageUrls
+        var uploadedBooks = includedBooks
+
+        if (context != null) {
+            val totalPhotos = imageUrls.count { it.startsWith("file:") || it.startsWith("content:") } +
+                    includedBooks.sumOf { b -> b.imageUris.count { it.startsWith("file:") || it.startsWith("content:") } }
+
+            var currentPhotoIdx = 0
+
+            uploadedCovers = imageUrls.mapIndexed { idx, url ->
+                if (url.startsWith("file:") || url.startsWith("content:")) {
+                    currentPhotoIdx++
+                    onProgress?.invoke("Uploading cover photo ($currentPhotoIdx of $totalPhotos)...")
+                    try {
+                        FirebaseStorageManager.uploadOriginalBookImage(
+                            context, newId, idx, android.net.Uri.parse(url)
+                        )
+                    } catch (e: Exception) {
+                        Log.w("MarketplaceRepo", "Cover photo upload failed, using fallback: ${e.message}")
+                        url
+                    }
+                } else url
+            }
+
+            uploadedBooks = includedBooks.mapIndexed { bIdx, book ->
+                val uploadedUris = book.imageUris.mapIndexed { imgIdx, u ->
+                    if (u.startsWith("file:") || u.startsWith("content:")) {
+                        currentPhotoIdx++
+                        onProgress?.invoke("Uploading book ${bIdx + 1} photo ($currentPhotoIdx of $totalPhotos)...")
+                        try {
+                            FirebaseStorageManager.uploadOriginalBookImage(
+                                context, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
+                            )
+                        } catch (e: Exception) {
+                            Log.w("MarketplaceRepo", "Book photo upload failed: ${e.message}")
+                            u
+                        }
+                    } else u
+                }
+                book.copy(imageUris = uploadedUris)
+            }
+        }
 
         val newSet = BookSet(
             id = newId,
@@ -954,82 +1000,38 @@ object MarketplaceRepository {
             totalPrice = totalPrice,
             overallCondition = overallCondition,
             description = description,
-            includedBooks = includedBooks,
-            coverDrawableRes = if (imageUrls.isNotEmpty()) null else coverDrawableRes,
-            imageUrls = imageUrls,
+            includedBooks = uploadedBooks,
+            coverDrawableRes = if (uploadedCovers.isNotEmpty()) null else coverDrawableRes,
+            imageUrls = uploadedCovers,
             status = SetStatus.AVAILABLE
         )
 
+        // Immediately update in-memory state
         _bookSets.update { listOf(newSet) + it }
 
+        // Save to Room SQLite database
         database?.let { db ->
-            scope.launch(Dispatchers.IO) {
+            try {
                 val entity = newSet.toEntity()
-                val bookEntities = includedBooks.map { it.toEntity(newId) }
+                val bookEntities = uploadedBooks.map { it.toEntity(newId) }
                 db.bookSetDao().insertBookSetWithBooks(entity, bookEntities)
+            } catch (e: Exception) {
+                Log.e("MarketplaceRepo", "Failed to save book set to local database", e)
             }
         }
 
+        // Publish verified BookSet with remote download URLs to Cloud Firestore for real-time visibility
         firestoreManager?.let { fs ->
-            scope.launch(Dispatchers.IO) {
-                try {
-                    fs.publishBookSet(newSet)
-
-                    // Asynchronously upload local photos to Firebase Storage and update listing
-                    val context = appContext
-                    if (context != null) {
-                        val hasLocalPhotos = imageUrls.any { it.startsWith("file:") || it.startsWith("content:") } ||
-                                includedBooks.any { b -> b.imageUris.any { it.startsWith("file:") || it.startsWith("content:") } }
-
-                        if (hasLocalPhotos) {
-                            val uploadedCovers = imageUrls.mapIndexed { idx, url ->
-                                if (url.startsWith("file:") || url.startsWith("content:")) {
-                                    try {
-                                        FirebaseStorageManager.uploadOriginalBookImage(
-                                            context, newId, idx, android.net.Uri.parse(url)
-                                        )
-                                    } catch (_: Exception) { url }
-                                } else url
-                            }
-
-                            val uploadedBooks = includedBooks.mapIndexed { bIdx, book ->
-                                val uploadedUris = book.imageUris.mapIndexed { imgIdx, u ->
-                                    if (u.startsWith("file:") || u.startsWith("content:")) {
-                                        try {
-                                            FirebaseStorageManager.uploadOriginalBookImage(
-                                                context, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
-                                            )
-                                        } catch (_: Exception) { u }
-                                    } else u
-                                }
-                                book.copy(imageUris = uploadedUris)
-                            }
-
-                            val updatedWithRemoteUrls = newSet.copy(
-                                imageUrls = uploadedCovers,
-                                includedBooks = uploadedBooks
-                            )
-
-                            _bookSets.update { list ->
-                                list.map { if (it.id == newId) updatedWithRemoteUrls else it }
-                            }
-
-                            database?.bookSetDao()?.insertBookSetWithBooks(
-                                updatedWithRemoteUrls.toEntity(),
-                                uploadedBooks.map { it.toEntity(newId) }
-                            )
-
-                            fs.publishBookSet(updatedWithRemoteUrls)
-                            Log.d("MarketplaceRepo", "Book photos uploaded to Storage & synced to Firestore for $newId")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MarketplaceRepo", "Failed to sync bookSet to Firestore", e)
-                }
+            try {
+                onProgress?.invoke("Publishing listing to campus marketplace...")
+                fs.publishBookSet(newSet)
+                Log.d("MarketplaceRepo", "Successfully published book set with remote image URLs to Firestore: $newId")
+            } catch (e: Exception) {
+                Log.e("MarketplaceRepo", "Failed to publish bookSet to Firestore", e)
             }
         }
 
-        return newSet
+        newSet
     }
 
     // Send a message
