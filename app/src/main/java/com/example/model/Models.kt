@@ -222,14 +222,39 @@ data class AppTrafficStats(
 )
 
 /**
- * Returns the primary cover photo URL for this book set, checking the set's image list
- * followed by any uploaded images attached to individual included books.
+ * Returns the primary cover photo URL for this book set.
+ * Prioritizes remote HTTPS URLs first so other devices render them cleanly.
+ * If only local file:// or content:// exist, checks if the local file exists on disk.
+ * Otherwise returns null to trigger the technology-specific cover illustration fallback.
  */
 val BookSet.primaryCoverUrl: String?
     get() {
-        val raw = imageUrls.firstOrNull { it.isNotBlank() }
-            ?: includedBooks.flatMap { it.imageUris }.firstOrNull { it.isNotBlank() }
-        return raw.sanitizeMediaUrl()
+        val allCandidates = (imageUrls + includedBooks.flatMap { it.imageUris }).filter { it.isNotBlank() }
+        
+        // 1. First priority: valid remote HTTPS / HTTP URLs (accessible by all users and devices)
+        val remoteUrl = allCandidates.firstOrNull { it.startsWith("http://") || it.startsWith("https://") }
+        if (remoteUrl != null) return remoteUrl
+
+        // 2. Second priority: data URI (e.g. data:image/...)
+        val dataUri = allCandidates.firstOrNull { it.startsWith("data:image/") }
+        if (dataUri != null) return dataUri
+
+        // 3. Third priority: local file/content URI only if the file actually exists on this device
+        val localCandidate = allCandidates.firstOrNull { it.startsWith("file:") || it.startsWith("content:") }
+        if (localCandidate != null) {
+            val sanitized = localCandidate.sanitizeMediaUrl()
+            if (sanitized != null && sanitized.startsWith("file:/")) {
+                try {
+                    val path = sanitized.removePrefix("file://").removePrefix("file:")
+                    val file = java.io.File(path)
+                    if (file.exists() && file.length() > 0) {
+                        return sanitized
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        return null
     }
 
 /**

@@ -2,35 +2,54 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    
-    // 1. Book Listing Photos: Completely public read for all buyers, students & guests across all devices.
-    // Upload & modification requires an authenticated user.
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImageFile() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidSize() {
+      // 15MB max file size per image
+      return request.resource.size < 15 * 1024 * 1024;
+    }
+
+    // 1. Book Listing Images:
+    // Completely public read access for all buyers, students, and guests across all devices.
+    // Writes restricted to authenticated users uploading valid image files under 15MB.
     match /book_images/{imageFile} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated() && isImageFile() && isValidSize();
+      allow delete: if isAuthenticated();
     }
 
-    // Recursive match in case nested sub-paths are used (e.g., book_images/{setId}/{imageFile})
     match /book_images/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated() && isImageFile() && isValidSize();
+      allow delete: if isAuthenticated();
     }
 
-    // 2. User Profile Avatars: Public read for campus community, authenticated write
+    // 2. User Profile Pictures:
+    // Public read so sellers and buyers can view profile avatars across campus.
     match /profile_images/{imageFile} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated() && isImageFile() && isValidSize();
+      allow delete: if isAuthenticated();
     }
 
     match /profile_images/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated() && isImageFile() && isValidSize();
+      allow delete: if isAuthenticated();
     }
 
-    // 3. Fallback catch-all for any other media paths
+    // Default fallback: deny unauthenticated writes
     match /{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated();
     }
   }
 }

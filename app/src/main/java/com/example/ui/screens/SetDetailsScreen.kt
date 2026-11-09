@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.*
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.example.model.effectiveCoverDrawableRes
 import com.example.model.primaryCoverUrl
 import com.example.model.sanitizeMediaUrl
 import androidx.compose.runtime.*
@@ -151,30 +152,46 @@ fun SetDetailsScreen(
     val allUploadedPhotos = remember(currentSet, optimisticPhotos) {
         val list = mutableListOf<String>()
 
+        fun isValidPhoto(uri: String): Boolean {
+            if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("data:image/")) {
+                return true
+            }
+            if (uri.startsWith("file:/")) {
+                return try {
+                    val path = uri.removePrefix("file://").removePrefix("file:")
+                    val file = java.io.File(path)
+                    file.exists() && file.length() > 0
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            return false
+        }
+
         // 1. Primary main cover photo at index 0 if available
         currentSet.primaryCoverUrl?.takeIf { it.isNotBlank() }?.let { primary ->
             val clean = primary.sanitizeMediaUrl() ?: primary
-            if (clean.isNotBlank()) list.add(clean)
+            if (clean.isNotBlank() && isValidPhoto(clean)) list.add(clean)
         }
 
         // 2. Explicit set cover / image URLs
         currentSet.imageUrls.filter { it.isNotBlank() }.forEach { rawUri ->
             val clean = rawUri.sanitizeMediaUrl() ?: rawUri
-            if (clean.isNotBlank() && clean !in list) list.add(clean)
+            if (clean.isNotBlank() && clean !in list && isValidPhoto(clean)) list.add(clean)
         }
 
         // 3. Individual included book front cover photos
         currentSet.includedBooks.forEach { book ->
             book.imageUris.filter { it.isNotBlank() }.forEach { rawUri ->
                 val clean = rawUri.sanitizeMediaUrl() ?: rawUri
-                if (clean.isNotBlank() && clean !in list) list.add(clean)
+                if (clean.isNotBlank() && clean !in list && isValidPhoto(clean)) list.add(clean)
             }
         }
 
         // 4. Optimistic real-time uploads
         optimisticPhotos.filter { it.isNotBlank() }.forEach { rawUri ->
             val clean = rawUri.sanitizeMediaUrl() ?: rawUri
-            if (clean.isNotBlank() && clean !in list) list.add(clean)
+            if (clean.isNotBlank() && clean !in list && isValidPhoto(clean)) list.add(clean)
         }
         list
     }
@@ -374,8 +391,12 @@ fun SetDetailsScreen(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedPhoto)
                                         .crossfade(true)
+                                        .placeholder(currentSet.effectiveCoverDrawableRes)
+                                        .error(currentSet.effectiveCoverDrawableRes)
+                                        .fallback(currentSet.effectiveCoverDrawableRes)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .networkCachePolicy(CachePolicy.ENABLED)
                                         .build(),
                                     contentDescription = currentSet.title,
                                     contentScale = ContentScale.Crop,
@@ -620,8 +641,12 @@ fun SetDetailsScreen(
                                                 model = ImageRequest.Builder(context)
                                                     .data(photoUri.sanitizeMediaUrl())
                                                     .crossfade(true)
+                                                    .placeholder(currentSet.effectiveCoverDrawableRes)
+                                                    .error(currentSet.effectiveCoverDrawableRes)
+                                                    .fallback(currentSet.effectiveCoverDrawableRes)
                                                     .diskCachePolicy(CachePolicy.ENABLED)
                                                     .memoryCachePolicy(CachePolicy.ENABLED)
+                                                    .networkCachePolicy(CachePolicy.ENABLED)
                                                     .build(),
                                                 contentDescription = "Cover Photo ${idx + 1}",
                                                 contentScale = ContentScale.Crop,
@@ -952,8 +977,12 @@ fun SetDetailsScreen(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedBookPhoto)
                                         .crossfade(true)
+                                        .placeholder(currentSet.effectiveCoverDrawableRes)
+                                        .error(currentSet.effectiveCoverDrawableRes)
+                                        .fallback(currentSet.effectiveCoverDrawableRes)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .networkCachePolicy(CachePolicy.ENABLED)
                                         .build(),
                                     contentDescription = book.bookName,
                                     contentScale = ContentScale.Crop,

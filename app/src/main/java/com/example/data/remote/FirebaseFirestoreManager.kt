@@ -59,6 +59,10 @@ class FirebaseFirestoreManager(private val context: Context) {
 
     suspend fun saveUserProfile(user: UserProfile, passwordHash: String? = null) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
         try {
+            val safeAvatarUri = user.profilePhotoUri?.takeIf {
+                it.startsWith("http://") || it.startsWith("https://")
+            } ?: ""
+
             val userMap = hashMapOf<String, Any?>(
                 "id" to user.id,
                 "name" to user.name,
@@ -67,7 +71,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "college" to user.college,
                 "technologyId" to user.technology.id,
                 "semesterId" to user.currentSemester.id,
-                "profilePhotoUri" to (user.profilePhotoUri ?: ""),
+                "profilePhotoUri" to safeAvatarUri,
                 "role" to user.role,
                 "accountStatus" to user.accountStatus,
                 "updatedAt" to FieldValue.serverTimestamp()
@@ -181,7 +185,15 @@ class FirebaseFirestoreManager(private val context: Context) {
 
     suspend fun publishBookSet(set: BookSet) {
         try {
+            // Guarantee only valid remote HTTPS URLs are stored in Cloud Firestore
+            val sanitizedImageUrls = set.imageUrls.filter { url ->
+                url.startsWith("http://") || url.startsWith("https://")
+            }
+
             val includedBooksList = set.includedBooks.map { book ->
+                val validBookImages = book.imageUris.filter { url ->
+                    url.startsWith("http://") || url.startsWith("https://")
+                }
                 hashMapOf(
                     "id" to book.id,
                     "setId" to book.setId,
@@ -191,9 +203,11 @@ class FirebaseFirestoreManager(private val context: Context) {
                     "edition" to book.edition,
                     "bookCode" to book.bookCode,
                     "condition" to book.condition,
-                    "imageUris" to book.imageUris
+                    "imageUris" to validBookImages
                 )
             }
+
+            val validAvatar = set.sellerAvatarUri?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: ""
 
             val map = hashMapOf(
                 "id" to set.id,
@@ -204,7 +218,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "sellerSem" to set.sellerSem,
                 "sellerPhone" to set.sellerPhone,
                 "sellerEmail" to set.sellerEmail,
-                "sellerAvatarUri" to (set.sellerAvatarUri ?: ""),
+                "sellerAvatarUri" to validAvatar,
                 "title" to set.title,
                 "subject" to set.subject,
                 "technologyId" to set.technology.id,
@@ -213,7 +227,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 "totalPrice" to set.totalPrice,
                 "overallCondition" to set.overallCondition.name,
                 "description" to set.description,
-                "imageUrls" to set.imageUrls,
+                "imageUrls" to sanitizedImageUrls,
                 "status" to set.status.name,
                 "createdAt" to set.createdAt,
                 "includedBooks" to includedBooksList
@@ -222,7 +236,7 @@ class FirebaseFirestoreManager(private val context: Context) {
             firestore.collection("bookSets").document(set.id)
                 .set(map, SetOptions.merge())
                 .await()
-            Log.d(tag, "BookSet published to Firestore: ${set.id}")
+            Log.d(tag, "BookSet published to Firestore with validated HTTPS URLs: ${set.id}")
         } catch (e: Exception) {
             Log.e(tag, "Failed to publish book set", e)
             throw e

@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.io.IOException
 import android.util.Log
 import android.net.Uri
 import com.example.data.remote.FirebaseFirestoreManager
@@ -939,48 +940,58 @@ object MarketplaceRepository {
         val newId = "set_" + UUID.randomUUID().toString().take(8)
         val context = appContext
 
-        // Upload photos to Firebase Storage before publishing so that remote HTTPS URLs are saved to Firestore
-        var uploadedCovers = imageUrls
+        // Upload photos to Firebase Storage before publishing so that only remote HTTPS URLs are saved to Firestore
+        var uploadedCovers: List<String> = emptyList()
         var uploadedBooks = includedBooks
 
-        if (context != null) {
-            val totalPhotos = imageUrls.count { it.startsWith("file:") || it.startsWith("content:") } +
-                    includedBooks.sumOf { b -> b.imageUris.count { it.startsWith("file:") || it.startsWith("content:") } }
+        val totalPhotos = imageUrls.count { it.isNotBlank() } +
+                includedBooks.sumOf { b -> b.imageUris.count { it.isNotBlank() } }
 
+        if (totalPhotos > 0) {
+            val targetContext = context ?: throw IOException("Application context unavailable for image upload")
             var currentPhotoIdx = 0
 
-            uploadedCovers = imageUrls.mapIndexed { idx, url ->
-                if (url.startsWith("file:") || url.startsWith("content:")) {
+            uploadedCovers = imageUrls.filter { it.isNotBlank() }.mapIndexed { idx, url ->
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    url
+                } else {
                     currentPhotoIdx++
                     onProgress?.invoke("Uploading cover photo ($currentPhotoIdx of $totalPhotos)...")
-                    try {
-                        FirebaseStorageManager.uploadOriginalBookImage(
-                            context, newId, idx, android.net.Uri.parse(url)
-                        )
-                    } catch (e: Exception) {
-                        Log.w("MarketplaceRepo", "Cover photo upload failed, using fallback: ${e.message}")
-                        url
+                    val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
+                        targetContext, newId, idx, android.net.Uri.parse(url)
+                    )
+                    if (!httpsUrl.startsWith("http://") && !httpsUrl.startsWith("https://")) {
+                        throw IOException("Invalid cover photo URL returned from Firebase Storage: $httpsUrl")
                     }
-                } else url
+                    httpsUrl
+                }
             }
 
             uploadedBooks = includedBooks.mapIndexed { bIdx, book ->
-                val uploadedUris = book.imageUris.mapIndexed { imgIdx, u ->
-                    if (u.startsWith("file:") || u.startsWith("content:")) {
+                val uploadedUris = book.imageUris.filter { it.isNotBlank() }.mapIndexed { imgIdx, u ->
+                    if (u.startsWith("http://") || u.startsWith("https://")) {
+                        u
+                    } else {
                         currentPhotoIdx++
                         onProgress?.invoke("Uploading book ${bIdx + 1} photo ($currentPhotoIdx of $totalPhotos)...")
-                        try {
-                            FirebaseStorageManager.uploadOriginalBookImage(
-                                context, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
-                            )
-                        } catch (e: Exception) {
-                            Log.w("MarketplaceRepo", "Book photo upload failed: ${e.message}")
-                            u
+                        val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
+                            targetContext, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
+                        )
+                        if (!httpsUrl.startsWith("http://") && !httpsUrl.startsWith("https://")) {
+                            throw IOException("Invalid book image URL returned from Firebase Storage: $httpsUrl")
                         }
-                    } else u
+                        httpsUrl
+                    }
                 }
                 book.copy(imageUris = uploadedUris)
             }
+        }
+
+        // Validate that no local file:// or content:// or unvalidated URIs remain in any images
+        val hasLocalCover = uploadedCovers.any { it.startsWith("file:") || it.startsWith("content:") }
+        val hasLocalBookPhoto = uploadedBooks.any { b -> b.imageUris.any { it.startsWith("file:") || it.startsWith("content:") } }
+        if (hasLocalCover || hasLocalBookPhoto) {
+            throw IOException("Listing contains unuploaded local image references. Remote HTTPS upload is strictly required.")
         }
 
         val newSet = BookSet(
@@ -1678,18 +1689,22 @@ object MarketplaceRepository {
                     return@launch
                 }
 
-                // Upload exact original photos without any compression, conversion, or resizing
+                // Upload exact original photos to Firebase Storage and require valid HTTPS URLs
                 val uploadedUrls = newPhotoUris.mapIndexed { idx, uri ->
                     val photoIndex = currentSet.imageUrls.size + idx
-                    FirebaseStorageManager.uploadOriginalBookImage(
+                    val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
                         context = context,
                         setId = setId,
                         photoIndex = photoIndex,
                         sourceUri = uri
                     )
+                    if (!httpsUrl.startsWith("http://") && !httpsUrl.startsWith("https://")) {
+                        throw IOException("Firebase Storage returned non-HTTPS URL for additional photo: $httpsUrl")
+                    }
+                    httpsUrl
                 }
 
-                val combinedImageUrls = (currentSet.imageUrls + uploadedUrls).distinct()
+                val combinedImageUrls = (currentSet.imageUrls.filter { it.startsWith("http://") || it.startsWith("https://") } + uploadedUrls).distinct()
                 val updatedSet = currentSet.copy(imageUrls = combinedImageUrls)
 
                 // 1. Immediately update in-memory state
@@ -1733,14 +1748,12 @@ object MarketplaceRepository {
 
         scope.launch {
             try {
-                // 1. Instantly store exact original image locally and update session so UI refreshes in 0ms
-                val localPersistentUri = ImageStorageManager.saveAvatarLocally(context, uri)
-                updateProfilePhotoUri(localPersistentUri)
-
-                // 2. Upload exact original bytes to Firebase Cloud Storage in background
+                // Upload to Firebase Cloud Storage and only persist verified HTTPS download URL
                 val downloadUrl = FirebaseStorageManager.uploadOriginalProfileImage(context, current.id, uri)
-                if (downloadUrl.isNotBlank() && downloadUrl != localPersistentUri) {
+                if (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://")) {
                     updateProfilePhotoUri(downloadUrl)
+                } else {
+                    throw IOException("Invalid profile photo URL from Storage: $downloadUrl")
                 }
                 onComplete?.invoke(true)
             } catch (e: Exception) {

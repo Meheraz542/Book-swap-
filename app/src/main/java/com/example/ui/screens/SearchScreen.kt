@@ -530,27 +530,24 @@ private fun SearchResultCard(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                             .data(coverUrl)
                             .crossfade(true)
+                            .placeholder(set.effectiveCoverDrawableRes)
+                            .error(set.effectiveCoverDrawableRes)
+                            .fallback(set.effectiveCoverDrawableRes)
                             .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                             .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .networkCachePolicy(coil.request.CachePolicy.ENABLED)
                             .build(),
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFF1F5F9)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.AutoStories,
-                            contentDescription = "No photo",
-                            tint = PrimaryPurple.copy(alpha = 0.5f),
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                    Image(
+                        painter = painterResource(id = set.effectiveCoverDrawableRes),
+                        contentDescription = set.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 Surface(

@@ -1,40 +1,101 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Student Profiles
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'mdmaheraz65@gmail.com' ||
+        request.auth.uid == 'admin_master_1'
+      );
+    }
+
+    // 1. Student Profiles:
+    // Public read so buyers and sellers can view contact info and technology details.
+    // Write restricted to the user themselves or system admin.
     match /users/{userId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isOwner(userId) || isAdmin() || (
+        // Allow initial registration creation if document id matches authenticated user uid
+        request.auth != null && request.auth.uid == userId
+      );
     }
 
-    // Semester Book Set Listings (Public Catalog)
+    // 2. Book Set Listings (Public Campus Catalog):
+    // Public read so all students and campus members can discover listings across devices.
+    // Create/update allowed for authenticated users (owner or admin).
+    // Delete restricted to the listing seller or admin.
     match /bookSets/{bookSetId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.sellerId == request.auth.uid ||
+        request.resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
     }
 
-    // Conversations between Buyer and Seller
+    // 3. Conversations between Buyer and Seller:
+    // Only participants (buyer or seller) and admin can read/write the conversation.
     match /conversations/{conversationId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        resource.data.buyerId == request.auth.uid ||
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.buyerId == request.auth.uid ||
+        request.resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.buyerId == request.auth.uid ||
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
 
-      // Messages inside Conversation
+      // Messages inside Conversation:
       match /messages/{messageId} {
-        allow read, write: if true;
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if isAdmin();
       }
     }
 
-    // Campus Meetup & Mega Deals (Public Catalog)
+    // 4. Campus Meetup & Mega Deals:
+    // Public read for campus browsing; creation/management for authenticated participants.
     match /megaDeals/{dealId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
-    // Global App Configuration (Maintenance Mode & Force Update)
+    // 5. Global App Configuration:
+    // Public read for version checking and maintenance banners.
+    // Writes restricted exclusively to admin.
     match /app_config/{configId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
-    // Campus Dispute & Violation Reports
+    // 6. Campus Dispute & Violation Reports:
+    // Authenticated users can create reports; only admin can read or resolve them.
     match /reports/{reportId} {
-      allow read, write: if true;
+      allow create: if isAuthenticated();
+      allow read, update, delete: if isAdmin();
     }
   }
 }
