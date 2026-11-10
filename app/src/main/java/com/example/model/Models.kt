@@ -270,18 +270,6 @@ fun String?.sanitizeMediaUrl(): String? {
     }
 }
 
-/**
- * Resolves the effective drawable resource for this book set, guaranteeing a technology-specific
- * cover graphic fallback if no custom cover drawable was assigned.
- */
-val BookSet.effectiveCoverDrawableRes: Int
-    get() = coverDrawableRes ?: when (technology) {
-        Technology.CIVIL, Technology.AIDT -> R.drawable.book_cover_civil_1789677775416
-        Technology.ELECTRICAL, Technology.TELECOM -> R.drawable.book_cover_elec_1789677789123
-        Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
-        Technology.CSE -> R.drawable.book_cover_cse_1789735549141
-    }
-
 data class AppConfig(
     val isMaintenanceMode: Boolean = false,
     val maintenanceMessage: String = "The app is currently undergoing scheduled campus maintenance. Please check back shortly.",

@@ -806,7 +806,9 @@ fun SellScreen(
                         text = if (isPublishing) "Publishing..." else "Publish Book Set",
                         onClick = {
                             val price = totalPriceText.toIntOrNull()
-                            if (includedBooks.isEmpty()) {
+                            if (coverPhotoUri.isNullOrBlank()) {
+                                errorMessage = "Please upload a real cover photo for this book set."
+                            } else if (includedBooks.isEmpty()) {
                                 errorMessage = "Please include at least one book in this set."
                             } else if (price == null || price <= 0) {
                                 errorMessage = "Please enter a valid price (Tk)."

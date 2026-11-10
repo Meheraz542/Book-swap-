@@ -401,12 +401,6 @@ class FirebaseFirestoreManager(private val context: Context) {
         }
 
         val parsedTech = Technology.fromId(techId)
-        val defaultCoverRes = when (parsedTech) {
-            Technology.CIVIL, Technology.AIDT -> R.drawable.book_cover_civil_1789677775416
-            Technology.ELECTRICAL, Technology.TELECOM -> R.drawable.book_cover_elec_1789677789123
-            Technology.MECHANICAL, Technology.POWER -> R.drawable.book_cover_mech_1789677808779
-            Technology.CSE -> R.drawable.book_cover_cse_1789735549141
-        }
 
         return BookSet(
             id = id,

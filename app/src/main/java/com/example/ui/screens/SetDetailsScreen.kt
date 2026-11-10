@@ -47,7 +47,6 @@ import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.*
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.example.model.effectiveCoverDrawableRes
 import com.example.model.primaryCoverUrl
 import com.example.model.sanitizeMediaUrl
 import androidx.compose.runtime.*
@@ -385,21 +384,25 @@ fun SetDetailsScreen(
                         }
                         val sanitizedPhoto = activePhoto.sanitizeMediaUrl()
 
+                        var heroLoadError by remember(sanitizedPhoto) { mutableStateOf(false) }
+                        var heroRetryTrigger by remember(sanitizedPhoto) { mutableIntStateOf(0) }
+
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (!sanitizedPhoto.isNullOrBlank()) {
+                            if (!sanitizedPhoto.isNullOrBlank() && !heroLoadError) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedPhoto)
                                         .crossfade(true)
-                                        .placeholder(currentSet.effectiveCoverDrawableRes)
-                                        .error(currentSet.effectiveCoverDrawableRes)
-                                        .fallback(currentSet.effectiveCoverDrawableRes)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .networkCachePolicy(CachePolicy.ENABLED)
+                                        .setParameter("retry", heroRetryTrigger, memoryCacheKey = null)
                                         .build(),
                                     contentDescription = currentSet.title,
                                     contentScale = ContentScale.Crop,
+                                    onError = {
+                                        heroLoadError = true
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
 
@@ -442,6 +445,58 @@ fun SetDetailsScreen(
                                         )
                                         Spacer(modifier = Modifier.width(3.dp))
                                         Text("Zoom", color = Color.White, fontSize = 9.sp)
+                                    }
+                                }
+                            } else if (heroLoadError) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFFF8FAFC)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier.padding(16.dp)
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                            modifier = Modifier.size(56.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.AutoStories,
+                                                    contentDescription = "Photo load failed",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "Failed to load book photo",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextPrimary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Please check your network and retry",
+                                            fontSize = 11.sp,
+                                            color = TextMuted
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Button(
+                                            onClick = {
+                                                heroLoadError = false
+                                                heroRetryTrigger++
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text("Retry Loading", fontSize = 12.sp, color = Color.White)
+                                        }
                                     }
                                 }
                             } else {
@@ -641,9 +696,6 @@ fun SetDetailsScreen(
                                                 model = ImageRequest.Builder(context)
                                                     .data(photoUri.sanitizeMediaUrl())
                                                     .crossfade(true)
-                                                    .placeholder(currentSet.effectiveCoverDrawableRes)
-                                                    .error(currentSet.effectiveCoverDrawableRes)
-                                                    .fallback(currentSet.effectiveCoverDrawableRes)
                                                     .diskCachePolicy(CachePolicy.ENABLED)
                                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                                     .networkCachePolicy(CachePolicy.ENABLED)
@@ -977,9 +1029,6 @@ fun SetDetailsScreen(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedBookPhoto)
                                         .crossfade(true)
-                                        .placeholder(currentSet.effectiveCoverDrawableRes)
-                                        .error(currentSet.effectiveCoverDrawableRes)
-                                        .fallback(currentSet.effectiveCoverDrawableRes)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .networkCachePolicy(CachePolicy.ENABLED)
