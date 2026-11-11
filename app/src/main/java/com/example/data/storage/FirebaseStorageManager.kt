@@ -5,39 +5,114 @@ import android.net.Uri
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
+import java.io.FileInputStream
 import java.io.IOException
 
 object FirebaseStorageManager {
     private const val TAG = "FirebaseStorageManager"
 
     /**
-     * Resolves the configured FirebaseStorage instance.
+     * Resolves candidate storage buckets in order of preference.
+     * Primary: Configured bucket from google-services.json / strings.xml
+     * Secondary: Canonical .appspot.com bucket for the Firebase project
+     * Tertiary: Default project bucket instance
      */
-    private fun getStorageInstance(context: Context): FirebaseStorage {
-        val app = if (FirebaseApp.getApps(context).isEmpty()) {
-            FirebaseApp.initializeApp(context) ?: FirebaseApp.getInstance()
-        } else {
-            FirebaseApp.getInstance()
-        }
-
-        val bucket = try {
+    private fun getCandidateBuckets(context: Context, app: FirebaseApp): List<String> {
+        val configured = try {
             val resId = context.resources.getIdentifier("google_storage_bucket", "string", context.packageName)
             if (resId != 0) context.getString(resId) else null
         } catch (_: Exception) {
             null
-        } ?: app.options.storageBucket?.takeIf { it.isNotBlank() } ?: "studio-4383603118-a2874.firebasestorage.app"
+        } ?: app.options.storageBucket?.takeIf { it.isNotBlank() }
 
-        return try {
-            FirebaseStorage.getInstance(app, "gs://$bucket")
-        } catch (ex: Exception) {
-            Log.w(TAG, "FirebaseStorage with explicit bucket failed, using default: ${ex.message}")
+        val projectId = try {
+            val resId = context.resources.getIdentifier("project_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId) else null
+        } catch (_: Exception) {
+            null
+        } ?: app.options.projectId?.takeIf { it.isNotBlank() } ?: "studio-4383603118-a2874"
+
+        val candidates = mutableListOf<String>()
+        if (!configured.isNullOrBlank()) {
+            val clean = configured.removePrefix("gs://").trimEnd('/')
+            candidates.add(clean)
+        }
+        candidates.add("$projectId.firebasestorage.app")
+        candidates.add("$projectId.appspot.com")
+
+        return candidates.distinct()
+    }
+
+    /**
+     * Returns a FirebaseStorage instance for the given app and bucket name.
+     */
+    private fun getStorageForBucket(app: FirebaseApp, bucketName: String?): FirebaseStorage {
+        return if (!bucketName.isNullOrBlank()) {
+            val clean = bucketName.removePrefix("gs://").trimEnd('/')
+            try {
+                FirebaseStorage.getInstance(app, "gs://$clean")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to create storage instance for gs://$clean: ${e.message}, falling back to default")
+                FirebaseStorage.getInstance(app)
+            }
+        } else {
             FirebaseStorage.getInstance(app)
+        }
+    }
+
+    /**
+     * Obtains the initialized FirebaseApp instance.
+     */
+    private fun getFirebaseApp(context: Context): FirebaseApp {
+        return if (FirebaseApp.getApps(context).isEmpty()) {
+            FirebaseApp.initializeApp(context) ?: FirebaseApp.getInstance()
+        } else {
+            FirebaseApp.getInstance()
+        }
+    }
+
+    /**
+     * Reads image bytes safely from either a file:// URI, content:// URI, or local path.
+     * Verifies that the source image is non-empty and readable before attempting any network upload.
+     */
+    private fun readImageBytes(context: Context, sourceUri: Uri): ByteArray {
+        val scheme = sourceUri.scheme?.lowercase()
+        val path = sourceUri.path
+
+        // Check local file access first if scheme is file or path is an absolute filesystem path
+        if (scheme == "file" || (path != null && (path.startsWith("/data/") || path.startsWith("/storage/")))) {
+            val filePath = path ?: ""
+            val file = File(filePath)
+            if (file.exists() && file.isFile && file.length() > 0) {
+                try {
+                    return file.readBytes()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Direct File.readBytes failed for $filePath, trying stream: ${e.message}")
+                }
+            }
+        }
+
+        // Fallback or standard contentResolver openInputStream
+        return try {
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                input.readBytes()
+            } ?: throw IOException("ContentResolver returned null input stream for: $sourceUri")
+        } catch (e: Exception) {
+            // Also attempt direct file stream if URI has a valid path
+            if (path != null) {
+                val f = File(path)
+                if (f.exists() && f.length() > 0) {
+                    return f.readBytes()
+                }
+            }
+            throw IOException("Could not read image data from $sourceUri: ${e.localizedMessage}", e)
         }
     }
 
@@ -55,47 +130,49 @@ object FirebaseStorageManager {
         val mimeType = resolveMimeType(context, sourceUri)
         val ext = resolveExtension(context, sourceUri, mimeType)
 
-        val originalBytes = try {
-            context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to read input stream for avatar: $sourceUri", e)
-            null
-        } ?: throw IOException("Could not read image data from $sourceUri")
-
+        val originalBytes = readImageBytes(context, sourceUri)
         if (originalBytes.isEmpty()) {
             throw IOException("Avatar image data is empty for $sourceUri")
         }
 
-        try {
-            val storage = getStorageInstance(context)
-            val storageRef = storage.reference.child("profile_images/${userId}_$timestamp.$ext")
-            Log.d(TAG, "Uploading ${originalBytes.size} bytes for avatar to: profile_images/${userId}_$timestamp.$ext")
+        val app = getFirebaseApp(context)
+        val candidateBuckets = getCandidateBuckets(context, app)
+        val destinationPath = "profile_images/${userId}_$timestamp.$ext"
 
-            val metadata = StorageMetadata.Builder()
-                .setContentType(mimeType)
-                .setCustomMetadata("userId", userId)
-                .setCustomMetadata("updatedAt", timestamp.toString())
-                .setCustomMetadata("originalFormat", ext)
-                .build()
+        val metadata = StorageMetadata.Builder()
+            .setContentType(mimeType)
+            .setCustomMetadata("userId", userId)
+            .setCustomMetadata("updatedAt", timestamp.toString())
+            .setCustomMetadata("originalFormat", ext)
+            .build()
 
-            storageRef.putBytes(originalBytes, metadata).await()
-            val downloadUrl = storageRef.downloadUrl.await().toString()
+        var lastException: Exception? = null
 
-            if (!downloadUrl.startsWith("https://", ignoreCase = true)) {
-                throw IOException("Firebase Storage returned non-HTTPS download URL: $downloadUrl")
+        for (bucket in candidateBuckets) {
+            try {
+                Log.d(TAG, "Attempting avatar upload to bucket [$bucket] at [$destinationPath] (${originalBytes.size} bytes)")
+                val storage = getStorageForBucket(app, bucket)
+                val storageRef = storage.reference.child(destinationPath)
+
+                val downloadUrl = executeUploadAndGetUrl(storageRef, originalBytes, metadata, destinationPath)
+                Log.d(TAG, "Successfully uploaded avatar to [$bucket]: $downloadUrl")
+                return@withContext downloadUrl
+            } catch (e: Exception) {
+                Log.w(TAG, "Avatar upload failed on bucket [$bucket]: ${e.localizedMessage}")
+                lastException = e
             }
-
-            Log.d(TAG, "Successfully uploaded avatar to Firebase Storage: $downloadUrl")
-            downloadUrl
-        } catch (e: Exception) {
-            Log.e(TAG, "Firebase Storage avatar upload failed", e)
-            throw IOException("Failed to upload avatar to Firebase Storage: ${e.localizedMessage}", e)
         }
+
+        throw IOException(
+            "Failed to upload avatar to Firebase Storage: ${lastException?.localizedMessage ?: "All bucket candidates failed"}",
+            lastException
+        )
     }
 
     /**
      * Uploads a book listing image to Firebase Cloud Storage.
-     * Throws an IOException on failure so that callers never save local URIs or broken references.
+     * Verifies that the source URI is valid and accessible before uploading.
+     * Executes the upload task and waits for it to complete successfully BEFORE requesting the download URL.
      * Never returns local file:// or content:// URIs.
      */
     suspend fun uploadOriginalBookImage(
@@ -108,48 +185,96 @@ object FirebaseStorageManager {
         val mimeType = resolveMimeType(context, sourceUri)
         val ext = resolveExtension(context, sourceUri, mimeType)
 
-        val originalBytes = try {
-            context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to read input stream for book image: $sourceUri", e)
-            null
-        } ?: throw IOException("Could not read image data from $sourceUri")
-
+        // Requirement 3: Verify that the selected image URI is valid and accessible before uploading
+        val originalBytes = readImageBytes(context, sourceUri)
         if (originalBytes.isEmpty()) {
-            throw IOException("Book image data is empty for $sourceUri")
+            throw IOException("Book image data is empty or inaccessible for: $sourceUri")
         }
 
-        try {
-            val storage = getStorageInstance(context)
-            val storageRef = storage.reference.child("book_images/${setId}_${photoIndex}_$timestamp.$ext")
-            Log.d(TAG, "Uploading ${originalBytes.size} bytes for book image to: book_images/${setId}_${photoIndex}_$timestamp.$ext")
+        val app = getFirebaseApp(context)
+        val candidateBuckets = getCandidateBuckets(context, app)
+        val destinationPath = "book_images/${setId}_${photoIndex}_$timestamp.$ext"
 
-            val currentUserId = try {
-                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
-            } catch (_: Exception) { "" }
+        val currentUserId = try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        } catch (_: Exception) { "" }
 
-            val metadata = StorageMetadata.Builder()
-                .setContentType(mimeType)
-                .setCustomMetadata("setId", setId)
-                .setCustomMetadata("userId", currentUserId)
-                .setCustomMetadata("photoIndex", photoIndex.toString())
-                .setCustomMetadata("updatedAt", timestamp.toString())
-                .setCustomMetadata("originalFormat", ext)
-                .build()
+        // Requirement 4: Ensure Firebase Storage uploads use the correct destination path and upload operation
+        val metadata = StorageMetadata.Builder()
+            .setContentType(mimeType)
+            .setCustomMetadata("setId", setId)
+            .setCustomMetadata("userId", currentUserId)
+            .setCustomMetadata("photoIndex", photoIndex.toString())
+            .setCustomMetadata("updatedAt", timestamp.toString())
+            .setCustomMetadata("originalFormat", ext)
+            .build()
 
-            storageRef.putBytes(originalBytes, metadata).await()
-            val downloadUrl = storageRef.downloadUrl.await().toString()
+        var lastException: Exception? = null
 
-            if (!downloadUrl.startsWith("https://", ignoreCase = true)) {
-                throw IOException("Firebase Storage returned non-HTTPS download URL: $downloadUrl")
+        // Try candidate buckets in order
+        for (bucket in candidateBuckets) {
+            try {
+                Log.d(TAG, "Starting book photo upload to bucket [$bucket] at path [$destinationPath] (${originalBytes.size} bytes, MIME: $mimeType)")
+                val storage = getStorageForBucket(app, bucket)
+                val storageRef = storage.reference.child(destinationPath)
+
+                // Requirements 5 & 6: Wait for upload task to complete successfully before requesting download URL
+                val downloadUrl = executeUploadAndGetUrl(storageRef, originalBytes, metadata, destinationPath)
+                Log.d(TAG, "Successfully uploaded book image to [$bucket]: $downloadUrl")
+                return@withContext downloadUrl
+            } catch (e: StorageException) {
+                Log.w(TAG, "Firebase StorageException on bucket [$bucket] (code: ${e.errorCode}): ${e.message}")
+                lastException = e
+                // If it's a 404 (bucket or object location not found), proceed to test next candidate bucket
+                if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND ||
+                    e.errorCode == StorageException.ERROR_BUCKET_NOT_FOUND) {
+                    continue
+                } else {
+                    // For permission or auth errors, also record and retry alternate bucket if available
+                    continue
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Unexpected upload failure on bucket [$bucket]: ${e.localizedMessage}")
+                lastException = e
             }
-
-            Log.d(TAG, "Successfully uploaded book image to Firebase Storage: $downloadUrl")
-            downloadUrl
-        } catch (e: Exception) {
-            Log.e(TAG, "Firebase Storage book photo upload failed: ${e.message}", e)
-            throw IOException("Failed to upload book photo to Firebase Storage: ${e.localizedMessage}", e)
         }
+
+        Log.e(TAG, "Firebase Storage book photo upload failed on all candidate buckets", lastException)
+        throw IOException("Failed to upload book photo to Firebase Storage: ${lastException?.localizedMessage ?: "Upload failed"}", lastException)
+    }
+
+    /**
+     * Executes the upload task and safely retrieves the download URL only AFTER
+     * the upload task has completely and successfully finished.
+     * Prevents calling downloadUrl on an uncommitted or missing object.
+     */
+    private suspend fun executeUploadAndGetUrl(
+        storageRef: StorageReference,
+        data: ByteArray,
+        metadata: StorageMetadata,
+        destinationPath: String
+    ): String {
+        // Start the upload task
+        val uploadTask = storageRef.putBytes(data, metadata)
+
+        // Attach listeners and use continueWithTask to ensure downloadUrl is only invoked AFTER task success
+        val downloadUri = uploadTask.continueWithTask { task ->
+            if (!task.isSuccessful) {
+                val exception = task.exception ?: IOException("Upload task failed for $destinationPath")
+                Log.e(TAG, "UploadTask failed before download URL retrieval: ${exception.message}", exception)
+                throw exception
+            }
+            // Upload was successful and committed on the server. Now safely retrieve the download URL.
+            Log.d(TAG, "Upload task succeeded for $destinationPath (${task.result.bytesTransferred} bytes transferred). Retrieving download URL...")
+            storageRef.downloadUrl
+        }.await()
+
+        val downloadUrl = downloadUri.toString()
+        if (!downloadUrl.startsWith("https://", ignoreCase = true)) {
+            throw IOException("Firebase Storage returned non-HTTPS download URL: $downloadUrl")
+        }
+
+        return downloadUrl
     }
 
     /**

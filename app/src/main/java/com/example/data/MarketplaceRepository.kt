@@ -954,11 +954,12 @@ object MarketplaceRepository {
             uploadedCovers = imageUrls.filter { it.isNotBlank() }.mapIndexed { idx, url ->
                 if (url.startsWith("https://", ignoreCase = true)) {
                     url
-                } else if (url.startsWith("file:", ignoreCase = true) || url.startsWith("content:", ignoreCase = true)) {
+                } else if (url.startsWith("file:", ignoreCase = true) || url.startsWith("content:", ignoreCase = true) || url.startsWith("/")) {
                     currentPhotoIdx++
                     onProgress?.invoke("Uploading cover photo ($currentPhotoIdx of $totalPhotos)...")
+                    val sourceUri = if (url.startsWith("/")) android.net.Uri.fromFile(java.io.File(url)) else android.net.Uri.parse(url)
                     val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
-                        targetContext, newId, idx, android.net.Uri.parse(url)
+                        targetContext, newId, idx, sourceUri
                     )
                     if (!httpsUrl.startsWith("https://", ignoreCase = true)) {
                         throw IOException("Strict Validation Failed: Firebase Storage returned non-HTTPS cover URL: $httpsUrl")
@@ -973,11 +974,12 @@ object MarketplaceRepository {
                 val uploadedUris = book.imageUris.filter { it.isNotBlank() }.mapIndexed { imgIdx, u ->
                     if (u.startsWith("https://", ignoreCase = true)) {
                         u
-                    } else if (u.startsWith("file:", ignoreCase = true) || u.startsWith("content:", ignoreCase = true)) {
+                    } else if (u.startsWith("file:", ignoreCase = true) || u.startsWith("content:", ignoreCase = true) || u.startsWith("/")) {
                         currentPhotoIdx++
                         onProgress?.invoke("Uploading book ${bIdx + 1} photo ($currentPhotoIdx of $totalPhotos)...")
+                        val sourceUri = if (u.startsWith("/")) android.net.Uri.fromFile(java.io.File(u)) else android.net.Uri.parse(u)
                         val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
-                            targetContext, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
+                            targetContext, "${newId}_b$bIdx", imgIdx, sourceUri
                         )
                         if (!httpsUrl.startsWith("https://", ignoreCase = true)) {
                             throw IOException("Strict Validation Failed: Firebase Storage returned non-HTTPS book image URL: $httpsUrl")

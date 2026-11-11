@@ -310,10 +310,12 @@ class FirebaseFirestoreManager(private val context: Context) {
     }
 
     suspend fun deleteBookSet(setId: String) {
+        if (setId.isBlank()) return
         try {
             firestore.collection("bookSets").document(setId).delete().await()
+            Log.d(tag, "Successfully deleted bookSet from Firestore: $setId")
         } catch (e: Exception) {
-            Log.e(tag, "Failed to delete bookSet", e)
+            Log.w(tag, "deleteBookSet note for $setId: ${e.message}")
         }
     }
 

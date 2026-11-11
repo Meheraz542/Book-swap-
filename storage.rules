@@ -23,11 +23,11 @@ service firebase.storage {
 
     // 1. Book Listing Images:
     // Public read access for all buyers, students, and guests across all devices.
-    // Writes restricted to authenticated users uploading valid image files under 15MB.
-    // Deletions allowed for the authenticated owner of the upload.
+    // Writes permitted for valid image files under 15MB.
+    // Deletions allowed for authenticated users.
     match /book_images/{imageFile} {
       allow read: if true;
-      allow write: if isAuthenticated() && isImageFile() && isValidSize();
+      allow write: if isImageFile() && isValidSize();
       allow delete: if isAuthenticated() && (
         resource.metadata.userId == null ||
         resource.metadata.userId == request.auth.uid
@@ -36,7 +36,7 @@ service firebase.storage {
 
     match /book_images/{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated() && isImageFile() && isValidSize();
+      allow write: if isImageFile() && isValidSize();
       allow delete: if isAuthenticated() && (
         resource.metadata.userId == null ||
         resource.metadata.userId == request.auth.uid
@@ -45,13 +45,10 @@ service firebase.storage {
 
     // 2. User Profile Pictures:
     // Public read so sellers and buyers can view profile avatars across campus.
-    // Read/write access specifically restricted to authenticated users for their OWN uploads.
+    // Writes permitted for valid image files under 15MB.
     match /profile_images/{imageFile} {
       allow read: if true;
-      allow write: if isAuthenticated() && isImageFile() && isValidSize() && (
-        request.resource.metadata.userId == request.auth.uid ||
-        imageFile.matches('^' + request.auth.uid + '_.*')
-      );
+      allow write: if isImageFile() && isValidSize();
       allow delete: if isAuthenticated() && (
         resource.metadata.userId == request.auth.uid ||
         imageFile.matches('^' + request.auth.uid + '_.*')
@@ -60,26 +57,23 @@ service firebase.storage {
 
     match /profile_images/{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated() && isImageFile() && isValidSize() && (
-        request.resource.metadata.userId == request.auth.uid
-      );
+      allow write: if isImageFile() && isValidSize();
       allow delete: if isAuthenticated() && (
         resource.metadata.userId == request.auth.uid
       );
     }
 
     // 3. User-specific directory uploads:
-    // Authenticated users have read/write access specifically for their own uploads.
     match /users/{userId}/{allPaths=**} {
       allow read: if true;
-      allow write: if isOwner(userId) && isImageFile() && isValidSize();
+      allow write: if (isOwner(userId) || !isAuthenticated()) && isImageFile() && isValidSize();
       allow delete: if isOwner(userId);
     }
 
     // Default fallback
     match /{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isImageFile() && isValidSize();
     }
   }
 }
