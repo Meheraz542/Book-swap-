@@ -81,7 +81,7 @@ object FirebaseStorageManager {
             storageRef.putBytes(originalBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
 
-            if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
+            if (!downloadUrl.startsWith("https://", ignoreCase = true)) {
                 throw IOException("Firebase Storage returned non-HTTPS download URL: $downloadUrl")
             }
 
@@ -124,9 +124,14 @@ object FirebaseStorageManager {
             val storageRef = storage.reference.child("book_images/${setId}_${photoIndex}_$timestamp.$ext")
             Log.d(TAG, "Uploading ${originalBytes.size} bytes for book image to: book_images/${setId}_${photoIndex}_$timestamp.$ext")
 
+            val currentUserId = try {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+            } catch (_: Exception) { "" }
+
             val metadata = StorageMetadata.Builder()
                 .setContentType(mimeType)
                 .setCustomMetadata("setId", setId)
+                .setCustomMetadata("userId", currentUserId)
                 .setCustomMetadata("photoIndex", photoIndex.toString())
                 .setCustomMetadata("updatedAt", timestamp.toString())
                 .setCustomMetadata("originalFormat", ext)
@@ -135,7 +140,7 @@ object FirebaseStorageManager {
             storageRef.putBytes(originalBytes, metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
 
-            if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
+            if (!downloadUrl.startsWith("https://", ignoreCase = true)) {
                 throw IOException("Firebase Storage returned non-HTTPS download URL: $downloadUrl")
             }
 

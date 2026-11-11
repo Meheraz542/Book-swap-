@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.data.MarketplaceRepository
 import com.example.model.BookSet
 import com.example.model.SetStatus
@@ -384,26 +384,76 @@ fun SetDetailsScreen(
                         }
                         val sanitizedPhoto = activePhoto.sanitizeMediaUrl()
 
-                        var heroLoadError by remember(sanitizedPhoto) { mutableStateOf(false) }
-                        var heroRetryTrigger by remember(sanitizedPhoto) { mutableIntStateOf(0) }
-
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (!sanitizedPhoto.isNullOrBlank() && !heroLoadError) {
-                                AsyncImage(
+                            if (!sanitizedPhoto.isNullOrBlank() && sanitizedPhoto.startsWith("https://", ignoreCase = true)) {
+                                SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedPhoto)
                                         .crossfade(true)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .networkCachePolicy(CachePolicy.ENABLED)
-                                        .setParameter("retry", heroRetryTrigger, memoryCacheKey = null)
                                         .build(),
                                     contentDescription = currentSet.title,
                                     contentScale = ContentScale.Crop,
-                                    onError = {
-                                        heroLoadError = true
+                                    modifier = Modifier.fillMaxSize(),
+                                    loading = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFFF1F5F9)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(32.dp),
+                                                strokeWidth = 2.5.dp,
+                                                color = PrimaryPurple
+                                            )
+                                        }
                                     },
-                                    modifier = Modifier.fillMaxSize()
+                                    error = {
+                                        // Coil's error state attribute exclusively: NO demo images shown
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFFF8FAFC)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center,
+                                                modifier = Modifier.padding(16.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                                    modifier = Modifier.size(56.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.AutoStories,
+                                                            contentDescription = "Photo load failed",
+                                                            tint = Color(0xFFEF4444),
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Text(
+                                                    text = "Failed to load book photo",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = TextPrimary
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Image unavailable or network error",
+                                                    fontSize = 11.sp,
+                                                    color = TextMuted
+                                                )
+                                            }
+                                        }
+                                    }
                                 )
 
                                 // Tag overlay at top-left
@@ -445,58 +495,6 @@ fun SetDetailsScreen(
                                         )
                                         Spacer(modifier = Modifier.width(3.dp))
                                         Text("Zoom", color = Color.White, fontSize = 9.sp)
-                                    }
-                                }
-                            } else if (heroLoadError) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xFFF8FAFC)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier.padding(16.dp)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFFEF4444).copy(alpha = 0.12f),
-                                            modifier = Modifier.size(56.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.AutoStories,
-                                                    contentDescription = "Photo load failed",
-                                                    tint = Color(0xFFEF4444),
-                                                    modifier = Modifier.size(28.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "Failed to load book photo",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = TextPrimary
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Please check your network and retry",
-                                            fontSize = 11.sp,
-                                            color = TextMuted
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Button(
-                                            onClick = {
-                                                heroLoadError = false
-                                                heroRetryTrigger++
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text("Retry Loading", fontSize = 12.sp, color = Color.White)
-                                        }
                                     }
                                 }
                             } else {
@@ -692,7 +690,7 @@ fun SetDetailsScreen(
                                         shadowElevation = if (isSelected) 6.dp else 2.dp
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize()) {
-                                            AsyncImage(
+                                            SubcomposeAsyncImage(
                                                 model = ImageRequest.Builder(context)
                                                     .data(photoUri.sanitizeMediaUrl())
                                                     .crossfade(true)
@@ -702,7 +700,37 @@ fun SetDetailsScreen(
                                                     .build(),
                                                 contentDescription = "Cover Photo ${idx + 1}",
                                                 contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier.fillMaxSize(),
+                                                loading = {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(Color(0xFFF1F5F9)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        CircularProgressIndicator(
+                                                            modifier = Modifier.size(16.dp),
+                                                            strokeWidth = 1.5.dp,
+                                                            color = PrimaryPurple
+                                                        )
+                                                    }
+                                                },
+                                                error = {
+                                                    // Coil error state: clean neutral fallback, no demo images
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(Color(0xFFF8FAFC)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.AutoStories,
+                                                            contentDescription = "Unavailable",
+                                                            tint = Color(0xFF94A3B8),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
                                             )
                                             if (idx == 0) {
                                                 Surface(
@@ -1024,8 +1052,8 @@ fun SetDetailsScreen(
                             border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
                             shadowElevation = 2.dp
                         ) {
-                            if (!sanitizedBookPhoto.isNullOrBlank()) {
-                                AsyncImage(
+                            if (!sanitizedBookPhoto.isNullOrBlank() && sanitizedBookPhoto.startsWith("https://", ignoreCase = true)) {
+                                SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedBookPhoto)
                                         .crossfade(true)
@@ -1035,7 +1063,37 @@ fun SetDetailsScreen(
                                         .build(),
                                     contentDescription = book.bookName,
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    loading = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFFF1F5F9)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 1.5.dp,
+                                                color = PrimaryPurple
+                                            )
+                                        }
+                                    },
+                                    error = {
+                                        // Coil error state attribute: NO demo images
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFFF8FAFC)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.AutoStories,
+                                                contentDescription = "Unavailable",
+                                                tint = Color(0xFF94A3B8),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
                                 )
                             } else {
                                 Box(
@@ -1152,8 +1210,8 @@ fun SetDetailsScreen(
                             shape = CircleShape,
                             color = PrimaryPurpleLight
                         ) {
-                            if (!dynamicSellerAvatarUri.isNullOrBlank() && !dynamicSellerAvatarUri.contains("default_avatar")) {
-                                AsyncImage(
+                            if (!dynamicSellerAvatarUri.isNullOrBlank() && dynamicSellerAvatarUri.startsWith("https://", ignoreCase = true)) {
+                                SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(dynamicSellerAvatarUri)
                                         .crossfade(true)
@@ -1162,7 +1220,31 @@ fun SetDetailsScreen(
                                         .build(),
                                     contentDescription = "Seller Profile Picture",
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    loading = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(PrimaryPurpleLight.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = PrimaryPurple
+                                            )
+                                        }
+                                    },
+                                    error = {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = dynamicSellerName.take(1).uppercase(),
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PrimaryPurple
+                                            )
+                                        }
+                                    }
                                 )
                             } else {
                                 Box(contentAlignment = Alignment.Center) {
@@ -1311,10 +1393,7 @@ fun SetDetailsScreen(
                     .background(Color.Black.copy(alpha = 0.95f)),
                 contentAlignment = Alignment.Center
             ) {
-                var isImageLoading by remember(viewingPhotoFullscreen) { mutableStateOf(true) }
-                var isImageError by remember(viewingPhotoFullscreen) { mutableStateOf(false) }
-
-                // Main High-Res Image with loading and fallback
+                // Main High-Res Image with loading and fallback using Coil's loading and error state attributes exclusively
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
@@ -1322,53 +1401,11 @@ fun SetDetailsScreen(
                         .clip(RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isImageLoading) {
-                        CircularProgressIndicator(
-                            color = PrimaryPurple,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(44.dp)
-                        )
-                    }
-
-                    if (isImageError) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(16.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoStories,
-                                contentDescription = "Photo unavailable",
-                                tint = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Photo temporarily unavailable",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Button(
-                                onClick = {
-                                    isImageError = false
-                                    isImageLoading = true
-                                    coil.Coil.imageLoader(context).memoryCache?.clear()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("Retry Loading", fontSize = 12.sp, color = Color.White)
-                            }
-                        }
-                    }
-
                     var scale by remember(viewingPhotoFullscreen) { mutableFloatStateOf(1f) }
                     var offsetX by remember(viewingPhotoFullscreen) { mutableFloatStateOf(0f) }
                     var offsetY by remember(viewingPhotoFullscreen) { mutableFloatStateOf(0f) }
 
-                    AsyncImage(
+                    SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(viewingPhotoFullscreen.sanitizeMediaUrl())
                             .crossfade(true)
@@ -1378,19 +1415,6 @@ fun SetDetailsScreen(
                             .build(),
                         contentDescription = "Full photo",
                         contentScale = ContentScale.Fit,
-                        onLoading = {
-                            isImageLoading = true
-                            isImageError = false
-                        },
-                        onSuccess = {
-                            isImageLoading = false
-                            isImageError = false
-                        },
-                        onError = { errorResult ->
-                            Log.w("SetDetailsScreen", "Failed to render fullscreen photo: ${viewingPhotoFullscreen.sanitizeMediaUrl()}", errorResult.result.throwable)
-                            isImageLoading = false
-                            isImageError = true
-                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .pointerInput(viewingPhotoFullscreen) {
@@ -1412,7 +1436,46 @@ fun SetDetailsScreen(
                                 scaleY = scale
                                 translationX = offsetX
                                 translationY = offsetY
+                            },
+                        loading = {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    color = PrimaryPurple,
+                                    strokeWidth = 3.dp,
+                                    modifier = Modifier.size(44.dp)
+                                )
                             }
+                        },
+                        error = {
+                            // Coil's error state attribute exclusively: NO demo images shown
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(16.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AutoStories,
+                                        contentDescription = "Photo unavailable",
+                                        tint = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "Photo temporarily unavailable",
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Image could not be loaded from remote storage",
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
                     )
                 }
 
@@ -1526,7 +1589,7 @@ fun SetDetailsScreen(
                                 ),
                                 color = Color.DarkGray
                             ) {
-                                AsyncImage(
+                                SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(photoUri.sanitizeMediaUrl())
                                         .crossfade(true)
@@ -1535,7 +1598,36 @@ fun SetDetailsScreen(
                                         .build(),
                                     contentDescription = "Thumbnail ${idx + 1}",
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    loading = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFF334155)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(14.dp),
+                                                strokeWidth = 1.5.dp,
+                                                color = PrimaryPurple
+                                            )
+                                        }
+                                    },
+                                    error = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFF1E293B)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.AutoStories,
+                                                contentDescription = "Unavailable",
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
                                 )
                             }
                         }

@@ -952,46 +952,50 @@ object MarketplaceRepository {
             var currentPhotoIdx = 0
 
             uploadedCovers = imageUrls.filter { it.isNotBlank() }.mapIndexed { idx, url ->
-                if (url.startsWith("http://") || url.startsWith("https://")) {
+                if (url.startsWith("https://", ignoreCase = true)) {
                     url
-                } else {
+                } else if (url.startsWith("file:", ignoreCase = true) || url.startsWith("content:", ignoreCase = true)) {
                     currentPhotoIdx++
                     onProgress?.invoke("Uploading cover photo ($currentPhotoIdx of $totalPhotos)...")
                     val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
                         targetContext, newId, idx, android.net.Uri.parse(url)
                     )
-                    if (!httpsUrl.startsWith("http://") && !httpsUrl.startsWith("https://")) {
-                        throw IOException("Invalid cover photo URL returned from Firebase Storage: $httpsUrl")
+                    if (!httpsUrl.startsWith("https://", ignoreCase = true)) {
+                        throw IOException("Strict Validation Failed: Firebase Storage returned non-HTTPS cover URL: $httpsUrl")
                     }
                     httpsUrl
+                } else {
+                    throw IllegalArgumentException("Strict Validation Error: Rejected invalid local image URI scheme: $url. Only HTTPS Firebase Storage URLs are permitted.")
                 }
             }
 
             uploadedBooks = includedBooks.mapIndexed { bIdx, book ->
                 val uploadedUris = book.imageUris.filter { it.isNotBlank() }.mapIndexed { imgIdx, u ->
-                    if (u.startsWith("http://") || u.startsWith("https://")) {
+                    if (u.startsWith("https://", ignoreCase = true)) {
                         u
-                    } else {
+                    } else if (u.startsWith("file:", ignoreCase = true) || u.startsWith("content:", ignoreCase = true)) {
                         currentPhotoIdx++
                         onProgress?.invoke("Uploading book ${bIdx + 1} photo ($currentPhotoIdx of $totalPhotos)...")
                         val httpsUrl = FirebaseStorageManager.uploadOriginalBookImage(
                             targetContext, "${newId}_b$bIdx", imgIdx, android.net.Uri.parse(u)
                         )
-                        if (!httpsUrl.startsWith("http://") && !httpsUrl.startsWith("https://")) {
-                            throw IOException("Invalid book image URL returned from Firebase Storage: $httpsUrl")
+                        if (!httpsUrl.startsWith("https://", ignoreCase = true)) {
+                            throw IOException("Strict Validation Failed: Firebase Storage returned non-HTTPS book image URL: $httpsUrl")
                         }
                         httpsUrl
+                    } else {
+                        throw IllegalArgumentException("Strict Validation Error: Rejected invalid book image URI scheme: $u. Only HTTPS Firebase Storage URLs are permitted.")
                     }
                 }
                 book.copy(imageUris = uploadedUris)
             }
         }
 
-        // Validate that no local file:// or content:// or unvalidated URIs remain in any images
-        val hasLocalCover = uploadedCovers.any { it.startsWith("file:") || it.startsWith("content:") }
-        val hasLocalBookPhoto = uploadedBooks.any { b -> b.imageUris.any { it.startsWith("file:") || it.startsWith("content:") } }
+        // Strict validation: Reject any file://, content://, or non-HTTPS URI attempts from reaching Firestore
+        val hasLocalCover = uploadedCovers.any { !it.startsWith("https://", ignoreCase = true) }
+        val hasLocalBookPhoto = uploadedBooks.any { b -> b.imageUris.any { !it.startsWith("https://", ignoreCase = true) } }
         if (hasLocalCover || hasLocalBookPhoto) {
-            throw IOException("Listing contains unuploaded local image references. Remote HTTPS upload is strictly required.")
+            throw IllegalArgumentException("Strict Validation Error: Only successful HTTPS Firebase Storage download URLs are permitted in Firestore. All local file:// or content:// URI attempts are strictly rejected.")
         }
 
         val newSet = BookSet(
@@ -1618,6 +1622,11 @@ object MarketplaceRepository {
 
     // Update Profile Photo with global real-time propagation across UI components
     fun updateProfilePhotoUri(uri: String?) {
+        // Strict validation: Reject any local file:// or content:// URI from reaching Firestore
+        if (uri != null && !uri.startsWith("https://", ignoreCase = true)) {
+            Log.e("MarketplaceRepo", "Strict Validation Error: Rejected non-HTTPS profile photo URI: $uri. Only HTTPS Firebase Storage URLs are permitted.")
+            return
+        }
         val updated = _currentUser.value.copy(profilePhotoUri = uri)
         propagateUserProfileUpdates(updated)
 
@@ -1698,13 +1707,19 @@ object MarketplaceRepository {
                         photoIndex = photoIndex,
                         sourceUri = uri
                     )
-                    if (!httpsUrl.startsWith("http://") && !httpsUrl.startsWith("https://")) {
-                        throw IOException("Firebase Storage returned non-HTTPS URL for additional photo: $httpsUrl")
+                    if (!httpsUrl.startsWith("https://", ignoreCase = true)) {
+                        throw IOException("Strict Validation Failed: Firebase Storage returned non-HTTPS URL for additional photo: $httpsUrl")
                     }
                     httpsUrl
                 }
 
-                val combinedImageUrls = (currentSet.imageUrls.filter { it.startsWith("http://") || it.startsWith("https://") } + uploadedUrls).distinct()
+                val combinedImageUrls = (currentSet.imageUrls.filter { it.startsWith("https://", ignoreCase = true) } + uploadedUrls).distinct()
+
+                // Strict validation: Reject any file:// or local URI attempts
+                val invalidPhoto = combinedImageUrls.firstOrNull { !it.startsWith("https://", ignoreCase = true) }
+                if (invalidPhoto != null) {
+                    throw IllegalArgumentException("Strict Validation Error: Rejected non-HTTPS photo URI: $invalidPhoto. Only HTTPS Firebase Storage URLs may be saved.")
+                }
                 val updatedSet = currentSet.copy(imageUrls = combinedImageUrls)
 
                 // 1. Immediately update in-memory state

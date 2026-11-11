@@ -231,30 +231,8 @@ val BookSet.primaryCoverUrl: String?
     get() {
         val allCandidates = (imageUrls + includedBooks.flatMap { it.imageUris }).filter { it.isNotBlank() }
         
-        // 1. First priority: valid remote HTTPS / HTTP URLs (accessible by all users and devices)
-        val remoteUrl = allCandidates.firstOrNull { it.startsWith("http://") || it.startsWith("https://") }
-        if (remoteUrl != null) return remoteUrl
-
-        // 2. Second priority: data URI (e.g. data:image/...)
-        val dataUri = allCandidates.firstOrNull { it.startsWith("data:image/") }
-        if (dataUri != null) return dataUri
-
-        // 3. Third priority: local file/content URI only if the file actually exists on this device
-        val localCandidate = allCandidates.firstOrNull { it.startsWith("file:") || it.startsWith("content:") }
-        if (localCandidate != null) {
-            val sanitized = localCandidate.sanitizeMediaUrl()
-            if (sanitized != null && sanitized.startsWith("file:/")) {
-                try {
-                    val path = sanitized.removePrefix("file://").removePrefix("file:")
-                    val file = java.io.File(path)
-                    if (file.exists() && file.length() > 0) {
-                        return sanitized
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-
-        return null
+        // Strict priority: verified HTTPS Firebase Storage download URLs accessible across all devices
+        return allCandidates.firstOrNull { it.startsWith("https://", ignoreCase = true) }
     }
 
 /**

@@ -47,7 +47,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -1239,22 +1239,44 @@ private fun HomeHeader(
                     .testTag("home_avatar"),
                 contentAlignment = Alignment.Center
             ) {
-                if (!avatarUri.isNullOrBlank()) {
-                    AsyncImage(
+                if (!avatarUri.isNullOrBlank() && avatarUri.startsWith("https://", ignoreCase = true)) {
+                    SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                             .data(avatarUri.sanitizeMediaUrl())
                             .crossfade(true)
                             .build(),
                         contentDescription = "Profile",
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else if (avatarRes != null) {
-                    Image(
-                        painter = painterResource(id = avatarRes),
-                        contentDescription = "Profile",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(PrimaryPurpleLight.copy(alpha = 0.5f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = PrimaryPurple
+                                )
+                            }
+                        },
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(PrimaryPurpleLight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = userName.take(1).uppercase(),
+                                    color = PrimaryPurple,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                            }
+                        }
                     )
                 } else {
                     Box(
@@ -1264,7 +1286,7 @@ private fun HomeHeader(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = userName.take(1),
+                            text = userName.take(1).uppercase(),
                             color = PrimaryPurple,
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp
@@ -1500,68 +1522,65 @@ fun BookSetCardHorizontal(
                 .background(Color(0xFFE2E8F0))
         ) {
             val coverUrl = set.primaryCoverUrl
-            var loadFailed by remember(coverUrl) { mutableStateOf(false) }
-            var retryTrigger by remember(coverUrl) { mutableIntStateOf(0) }
 
-            if (!coverUrl.isNullOrBlank() && !loadFailed) {
-                AsyncImage(
+            if (!coverUrl.isNullOrBlank() && coverUrl.startsWith("https://", ignoreCase = true)) {
+                SubcomposeAsyncImage(
                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                         .data(coverUrl)
                         .crossfade(true)
                         .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                         .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                         .networkCachePolicy(coil.request.CachePolicy.ENABLED)
-                        .setParameter("retry", retryTrigger, memoryCacheKey = null)
                         .build(),
                     contentDescription = set.title,
                     contentScale = ContentScale.Crop,
-                    onError = {
-                        loadFailed = true
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFF1F5F9)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = PrimaryPurple.copy(alpha = 0.7f)
+                            )
+                        }
                     },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else if (loadFailed) {
-                // Real uploaded photo failed to load: show clean error state with retry option
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFFF8FAFC)),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AutoStories,
-                        contentDescription = "Failed to load photo",
-                        tint = Color(0xFFEF4444).copy(alpha = 0.7f),
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Photo load failed",
-                        fontSize = 11.sp,
-                        color = TextSecondary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Surface(
-                        onClick = {
-                            loadFailed = false
-                            retryTrigger++
-                        },
-                        shape = RoundedCornerShape(6.dp),
-                        color = PrimaryPurple.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "Retry",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = PrimaryPurple,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
+                    error = {
+                        // Coil's error state attribute exclusively: NO demo images shown
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFF8FAFC)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AutoStories,
+                                    contentDescription = "Image unavailable",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Image unavailable",
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
-                }
+                )
             } else {
-                // No user photo uploaded: clean neutral empty placeholder (no fake book image)
+                // No user photo uploaded: clean neutral empty placeholder (no demo images)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1723,62 +1742,50 @@ fun BookSetCardVertical(
                     .background(Color(0xFFE2E8F0))
             ) {
                 val coverUrl = set.primaryCoverUrl
-                var loadFailed by remember(coverUrl) { mutableStateOf(false) }
-                var retryTrigger by remember(coverUrl) { mutableIntStateOf(0) }
 
-                if (!coverUrl.isNullOrBlank() && !loadFailed) {
-                    AsyncImage(
+                if (!coverUrl.isNullOrBlank() && coverUrl.startsWith("https://", ignoreCase = true)) {
+                    SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                             .data(coverUrl)
                             .crossfade(true)
                             .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                             .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                             .networkCachePolicy(coil.request.CachePolicy.ENABLED)
-                            .setParameter("retry", retryTrigger, memoryCacheKey = null)
                             .build(),
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
-                        onError = {
-                            loadFailed = true
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else if (loadFailed) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFF8FAFC)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoStories,
-                                contentDescription = "Load error",
-                                tint = Color(0xFFEF4444).copy(alpha = 0.7f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Surface(
-                                onClick = {
-                                    loadFailed = false
-                                    retryTrigger++
-                                },
-                                shape = RoundedCornerShape(4.dp),
-                                color = PrimaryPurple.copy(alpha = 0.12f)
+                        modifier = Modifier.fillMaxSize(),
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFFF1F5F9)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "Retry",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryPurple,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = PrimaryPurple.copy(alpha = 0.7f)
+                                )
+                            }
+                        },
+                        error = {
+                            // Coil's error state attribute exclusively: NO demo images shown
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFFF8FAFC)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AutoStories,
+                                    contentDescription = "Image unavailable",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
-                    }
+                    )
                 } else {
                     Box(
                         modifier = Modifier
@@ -1862,22 +1869,30 @@ fun BookSetCardVertical(
                         shape = CircleShape,
                         color = Color(0xFFE2E8F0)
                     ) {
-                        if (!sellerAvatarUri.isNullOrBlank()) {
-                            AsyncImage(
+                        if (!sellerAvatarUri.isNullOrBlank() && sellerAvatarUri.startsWith("https://", ignoreCase = true)) {
+                            SubcomposeAsyncImage(
                                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                     .data(sellerAvatarUri.sanitizeMediaUrl())
                                     .crossfade(true)
                                     .build(),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else if (seller?.profilePhotoRes != null) {
-                            Image(
-                                painter = painterResource(id = seller.profilePhotoRes!!),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                loading = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color(0xFFE2E8F0))
+                                    )
+                                },
+                                error = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Person,
+                                        contentDescription = null,
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.padding(2.dp)
+                                    )
+                                }
                             )
                         } else {
                             Icon(

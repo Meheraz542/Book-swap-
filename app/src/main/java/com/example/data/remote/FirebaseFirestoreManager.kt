@@ -185,14 +185,24 @@ class FirebaseFirestoreManager(private val context: Context) {
 
     suspend fun publishBookSet(set: BookSet) {
         try {
+            // Strict validation: Reject any attempt to save file://, content://, or local URIs
+            val localCover = set.imageUrls.firstOrNull { it.startsWith("file:", ignoreCase = true) || it.startsWith("content:", ignoreCase = true) || !it.startsWith("https://", ignoreCase = true) }
+            if (localCover != null) {
+                throw IllegalArgumentException("Strict Validation Error: Rejected non-HTTPS cover URL ($localCover). Only HTTPS Firebase Storage URLs may be saved in Firestore.")
+            }
+            val localBookImg = set.includedBooks.flatMap { it.imageUris }.firstOrNull { it.startsWith("file:", ignoreCase = true) || it.startsWith("content:", ignoreCase = true) || !it.startsWith("https://", ignoreCase = true) }
+            if (localBookImg != null) {
+                throw IllegalArgumentException("Strict Validation Error: Rejected non-HTTPS book image URI ($localBookImg). Only HTTPS Firebase Storage URLs may be saved in Firestore.")
+            }
+
             // Guarantee only valid remote HTTPS URLs are stored in Cloud Firestore
             val sanitizedImageUrls = set.imageUrls.filter { url ->
-                url.startsWith("http://") || url.startsWith("https://")
+                url.startsWith("https://", ignoreCase = true)
             }
 
             val includedBooksList = set.includedBooks.map { book ->
                 val validBookImages = book.imageUris.filter { url ->
-                    url.startsWith("http://") || url.startsWith("https://")
+                    url.startsWith("https://", ignoreCase = true)
                 }
                 hashMapOf(
                     "id" to book.id,
@@ -207,7 +217,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 )
             }
 
-            val validAvatar = set.sellerAvatarUri?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: ""
+            val validAvatar = set.sellerAvatarUri?.takeIf { it.startsWith("https://", ignoreCase = true) } ?: ""
 
             val map = hashMapOf(
                 "id" to set.id,
