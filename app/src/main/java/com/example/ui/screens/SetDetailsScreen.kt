@@ -385,7 +385,7 @@ fun SetDetailsScreen(
                         val sanitizedPhoto = activePhoto.sanitizeMediaUrl()
 
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (!sanitizedPhoto.isNullOrBlank() && sanitizedPhoto.startsWith("https://", ignoreCase = true)) {
+                            if (!sanitizedPhoto.isNullOrBlank() && (sanitizedPhoto.startsWith("https://", ignoreCase = true) || sanitizedPhoto.startsWith("data:image/", ignoreCase = true))) {
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedPhoto)
@@ -1052,7 +1052,7 @@ fun SetDetailsScreen(
                             border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
                             shadowElevation = 2.dp
                         ) {
-                            if (!sanitizedBookPhoto.isNullOrBlank() && sanitizedBookPhoto.startsWith("https://", ignoreCase = true)) {
+                            if (!sanitizedBookPhoto.isNullOrBlank() && (sanitizedBookPhoto.startsWith("https://", ignoreCase = true) || sanitizedBookPhoto.startsWith("data:image/", ignoreCase = true))) {
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedBookPhoto)
@@ -1210,7 +1210,7 @@ fun SetDetailsScreen(
                             shape = CircleShape,
                             color = PrimaryPurpleLight
                         ) {
-                            if (!dynamicSellerAvatarUri.isNullOrBlank() && dynamicSellerAvatarUri.startsWith("https://", ignoreCase = true)) {
+                            if (!dynamicSellerAvatarUri.isNullOrBlank() && (dynamicSellerAvatarUri.startsWith("https://", ignoreCase = true) || dynamicSellerAvatarUri.startsWith("data:image/", ignoreCase = true))) {
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(dynamicSellerAvatarUri)

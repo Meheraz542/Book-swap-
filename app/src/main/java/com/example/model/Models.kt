@@ -231,8 +231,8 @@ val BookSet.primaryCoverUrl: String?
     get() {
         val allCandidates = (imageUrls + includedBooks.flatMap { it.imageUris }).filter { it.isNotBlank() }
         
-        // Strict priority: verified HTTPS Firebase Storage download URLs accessible across all devices
-        return allCandidates.firstOrNull { it.startsWith("https://", ignoreCase = true) }
+        // Strict priority: verified HTTPS Firebase Storage download URLs or cloud data payloads accessible across all devices
+        return allCandidates.firstOrNull { it.startsWith("https://", ignoreCase = true) || it.startsWith("data:image/", ignoreCase = true) }
     }
 
 /**

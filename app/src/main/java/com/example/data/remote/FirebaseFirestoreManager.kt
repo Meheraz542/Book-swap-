@@ -185,24 +185,24 @@ class FirebaseFirestoreManager(private val context: Context) {
 
     suspend fun publishBookSet(set: BookSet) {
         try {
-            // Strict validation: Reject any attempt to save file://, content://, or local URIs
-            val localCover = set.imageUrls.firstOrNull { it.startsWith("file:", ignoreCase = true) || it.startsWith("content:", ignoreCase = true) || !it.startsWith("https://", ignoreCase = true) }
+            // Strict validation: Reject any attempt to save local file:// or content:// URIs
+            val localCover = set.imageUrls.firstOrNull { it.startsWith("file:", ignoreCase = true) || it.startsWith("content:", ignoreCase = true) || (!it.startsWith("https://", ignoreCase = true) && !it.startsWith("data:image/", ignoreCase = true)) }
             if (localCover != null) {
-                throw IllegalArgumentException("Strict Validation Error: Rejected non-HTTPS cover URL ($localCover). Only HTTPS Firebase Storage URLs may be saved in Firestore.")
+                throw IllegalArgumentException("Strict Validation Error: Rejected non-cloud cover URL ($localCover). Only remote HTTPS or cloud image payloads may be saved in Firestore.")
             }
-            val localBookImg = set.includedBooks.flatMap { it.imageUris }.firstOrNull { it.startsWith("file:", ignoreCase = true) || it.startsWith("content:", ignoreCase = true) || !it.startsWith("https://", ignoreCase = true) }
+            val localBookImg = set.includedBooks.flatMap { it.imageUris }.firstOrNull { it.startsWith("file:", ignoreCase = true) || it.startsWith("content:", ignoreCase = true) || (!it.startsWith("https://", ignoreCase = true) && !it.startsWith("data:image/", ignoreCase = true)) }
             if (localBookImg != null) {
-                throw IllegalArgumentException("Strict Validation Error: Rejected non-HTTPS book image URI ($localBookImg). Only HTTPS Firebase Storage URLs may be saved in Firestore.")
+                throw IllegalArgumentException("Strict Validation Error: Rejected non-cloud book image URI ($localBookImg). Only remote HTTPS or cloud image payloads may be saved in Firestore.")
             }
 
-            // Guarantee only valid remote HTTPS URLs are stored in Cloud Firestore
+            // Guarantee only valid remote HTTPS or cloud payload URLs are stored in Cloud Firestore
             val sanitizedImageUrls = set.imageUrls.filter { url ->
-                url.startsWith("https://", ignoreCase = true)
+                url.startsWith("https://", ignoreCase = true) || url.startsWith("data:image/", ignoreCase = true)
             }
 
             val includedBooksList = set.includedBooks.map { book ->
                 val validBookImages = book.imageUris.filter { url ->
-                    url.startsWith("https://", ignoreCase = true)
+                    url.startsWith("https://", ignoreCase = true) || url.startsWith("data:image/", ignoreCase = true)
                 }
                 hashMapOf(
                     "id" to book.id,

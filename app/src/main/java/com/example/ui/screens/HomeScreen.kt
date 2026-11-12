@@ -1239,7 +1239,7 @@ private fun HomeHeader(
                     .testTag("home_avatar"),
                 contentAlignment = Alignment.Center
             ) {
-                if (!avatarUri.isNullOrBlank() && avatarUri.startsWith("https://", ignoreCase = true)) {
+                if (!avatarUri.isNullOrBlank() && (avatarUri.startsWith("https://", ignoreCase = true) || avatarUri.startsWith("data:image/", ignoreCase = true))) {
                     SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                             .data(avatarUri.sanitizeMediaUrl())
@@ -1523,7 +1523,7 @@ fun BookSetCardHorizontal(
         ) {
             val coverUrl = set.primaryCoverUrl
 
-            if (!coverUrl.isNullOrBlank() && coverUrl.startsWith("https://", ignoreCase = true)) {
+            if (!coverUrl.isNullOrBlank() && (coverUrl.startsWith("https://", ignoreCase = true) || coverUrl.startsWith("data:image/", ignoreCase = true))) {
                 SubcomposeAsyncImage(
                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                         .data(coverUrl)
@@ -1743,7 +1743,7 @@ fun BookSetCardVertical(
             ) {
                 val coverUrl = set.primaryCoverUrl
 
-                if (!coverUrl.isNullOrBlank() && coverUrl.startsWith("https://", ignoreCase = true)) {
+                if (!coverUrl.isNullOrBlank() && (coverUrl.startsWith("https://", ignoreCase = true) || coverUrl.startsWith("data:image/", ignoreCase = true))) {
                     SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                             .data(coverUrl)
@@ -1869,7 +1869,7 @@ fun BookSetCardVertical(
                         shape = CircleShape,
                         color = Color(0xFFE2E8F0)
                     ) {
-                        if (!sellerAvatarUri.isNullOrBlank() && sellerAvatarUri.startsWith("https://", ignoreCase = true)) {
+                        if (!sellerAvatarUri.isNullOrBlank() && (sellerAvatarUri.startsWith("https://", ignoreCase = true) || sellerAvatarUri.startsWith("data:image/", ignoreCase = true))) {
                             SubcomposeAsyncImage(
                                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                     .data(sellerAvatarUri.sanitizeMediaUrl())
