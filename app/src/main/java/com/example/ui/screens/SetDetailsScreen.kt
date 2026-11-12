@@ -92,13 +92,16 @@ fun SetDetailsScreen(
         val reg = MarketplaceRepository.firestoreManager?.listenSingleBookSet(bookSet.id) { updatedRemote ->
             if (updatedRemote != null) {
                 directLiveSet = updatedRemote
+                MarketplaceRepository.updateBookSetInMemory(updatedRemote)
             }
         }
         onDispose {
             reg?.remove()
         }
     }
-    val currentSet = directLiveSet ?: repoBookSet
+    val currentSet = remember(directLiveSet, repoBookSet) {
+        directLiveSet ?: repoBookSet
+    }
 
     val sellerUser = (if (currentUser.id == currentSet.sellerId) currentUser else null)
         ?: allUsers.find { it.id == currentSet.sellerId }
@@ -386,6 +389,7 @@ fun SetDetailsScreen(
 
                         Box(modifier = Modifier.fillMaxSize()) {
                             if (!sanitizedPhoto.isNullOrBlank() && (sanitizedPhoto.startsWith("https://", ignoreCase = true) || sanitizedPhoto.startsWith("data:image/", ignoreCase = true))) {
+                                val cacheKey = sanitizedPhoto.substringBefore("?")
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedPhoto)
@@ -393,6 +397,8 @@ fun SetDetailsScreen(
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .networkCachePolicy(CachePolicy.ENABLED)
+                                        .memoryCacheKey(cacheKey)
+                                        .diskCacheKey(cacheKey)
                                         .build(),
                                     contentDescription = currentSet.title,
                                     contentScale = ContentScale.Crop,
@@ -690,6 +696,7 @@ fun SetDetailsScreen(
                                         shadowElevation = if (isSelected) 6.dp else 2.dp
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize()) {
+                                            val thumbKey = photoUri.sanitizeMediaUrl()?.substringBefore("?")
                                             SubcomposeAsyncImage(
                                                 model = ImageRequest.Builder(context)
                                                     .data(photoUri.sanitizeMediaUrl())
@@ -697,6 +704,8 @@ fun SetDetailsScreen(
                                                     .diskCachePolicy(CachePolicy.ENABLED)
                                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                                     .networkCachePolicy(CachePolicy.ENABLED)
+                                                    .memoryCacheKey(thumbKey)
+                                                    .diskCacheKey(thumbKey)
                                                     .build(),
                                                 contentDescription = "Cover Photo ${idx + 1}",
                                                 contentScale = ContentScale.Crop,
@@ -1589,12 +1598,16 @@ fun SetDetailsScreen(
                                 ),
                                 color = Color.DarkGray
                             ) {
+                                val previewKey = photoUri.sanitizeMediaUrl()?.substringBefore("?")
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(photoUri.sanitizeMediaUrl())
                                         .crossfade(true)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .networkCachePolicy(CachePolicy.ENABLED)
+                                        .memoryCacheKey(previewKey)
+                                        .diskCacheKey(previewKey)
                                         .build(),
                                     contentDescription = "Thumbnail ${idx + 1}",
                                     contentScale = ContentScale.Crop,

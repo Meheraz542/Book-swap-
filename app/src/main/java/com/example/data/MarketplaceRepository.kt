@@ -2104,6 +2104,20 @@ object MarketplaceRepository {
         }
     }
 
+    /**
+     * Updates an individual BookSet in memory and ensures immediate real-time propagation
+     * to all active observers, search screens, and set details screens.
+     */
+    fun updateBookSetInMemory(updatedSet: BookSet) {
+        _bookSets.update { list ->
+            if (list.any { it.id == updatedSet.id }) {
+                list.map { if (it.id == updatedSet.id) updatedSet else it }
+            } else {
+                listOf(updatedSet) + list
+            }
+        }
+    }
+
     // Admin: Permanently Delete Listing
     fun adminDeleteSet(setId: String) {
         _bookSets.update { list ->
