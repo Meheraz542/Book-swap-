@@ -3,6 +3,8 @@ package com.example.data.storage
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
@@ -14,6 +16,7 @@ import com.google.firebase.storage.StorageReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -182,7 +185,8 @@ object FirebaseStorageManager {
         context: Context,
         setId: String,
         photoIndex: Int,
-        sourceUri: Uri
+        sourceUri: Uri,
+        maxBytesBudget: Int = 95_000
     ): String = withContext(Dispatchers.IO) {
         val timestamp = System.currentTimeMillis()
         val mimeType = resolveMimeType(context, sourceUri)
@@ -238,42 +242,75 @@ object FirebaseStorageManager {
         // When the Cloud Storage bucket is not yet provisioned in the Firebase project (HTTP 404 / NoSuchBucket),
         // gracefully fall back to an optimized cloud payload stored in Cloud Firestore, preventing publish failure.
         Log.w(TAG, "Firebase Storage bucket not yet enabled on project, using Cloud Firestore image payload fallback", lastException)
-        return@withContext convertToCloudPayload(originalBytes, mimeType)
+        return@withContext convertToCloudPayload(originalBytes, mimeType, maxBytesBudget)
     }
 
     /**
      * Converts raw image bytes into an optimized, cloud-syncable Base64 data payload.
-     * Scales large photos down to max 900px and 82% JPEG quality to conserve Firestore document storage
+     * Fixes EXIF orientation and scales/compresses iteratively within maxBytesBudget
+     * so even multi-photo listings stay comfortably below Firestore's 1 MiB document limit
      * while maintaining crisp visual fidelity in Coil.
      */
-    private fun convertToCloudPayload(bytes: ByteArray, mimeType: String): String {
+    private fun convertToCloudPayload(
+        bytes: ByteArray,
+        mimeType: String,
+        maxBytesBudget: Int = 95_000
+    ): String {
         return try {
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            if (bitmap != null) {
-                val maxDim = 900
-                val width = bitmap.width
-                val height = bitmap.height
-                val (scaledW, scaledH) = if (width > maxDim || height > maxDim) {
-                    val ratio = width.toFloat() / height.toFloat()
-                    if (ratio > 1f) {
-                        maxDim to (maxDim / ratio).toInt()
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sampleSize = 1
+            while ((bounds.outWidth / sampleSize) > 1800 || (bounds.outHeight / sampleSize) > 1800) {
+                sampleSize *= 2
+            }
+            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
+                ?: BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (rawBitmap != null) {
+                val orientedBitmap = applyExifOrientation(rawBitmap, bytes)
+                if (orientedBitmap !== rawBitmap) rawBitmap.recycle()
+
+                val dimensionSteps = listOf(900, 720, 560, 440)
+                val qualitySteps = listOf(82, 70, 58, 46, 36)
+                var bestBytes: ByteArray? = null
+
+                outer@ for (maxDim in dimensionSteps) {
+                    val width = orientedBitmap.width
+                    val height = orientedBitmap.height
+                    val (scaledW, scaledH) = if (width > maxDim || height > maxDim) {
+                        val ratio = width.toFloat() / height.toFloat()
+                        if (ratio > 1f) {
+                            maxDim to (maxDim / ratio).toInt().coerceAtLeast(1)
+                        } else {
+                            (maxDim * ratio).toInt().coerceAtLeast(1) to maxDim
+                        }
                     } else {
-                        (maxDim * ratio).toInt() to maxDim
+                        width to height
                     }
-                } else {
-                    width to height
-                }
 
-                val scaledBitmap = if (scaledW != width || scaledH != height) {
-                    Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
-                } else {
-                    bitmap
-                }
+                    val candidateBitmap = if (scaledW != width || scaledH != height) {
+                        Bitmap.createScaledBitmap(orientedBitmap, scaledW, scaledH, true)
+                    } else {
+                        orientedBitmap
+                    }
 
-                val out = ByteArrayOutputStream()
-                scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
-                val compressedBytes = out.toByteArray()
-                val b64 = Base64.encodeToString(compressedBytes, Base64.NO_WRAP)
+                    for (q in qualitySteps) {
+                        val out = ByteArrayOutputStream()
+                        candidateBitmap.compress(Bitmap.CompressFormat.JPEG, q, out)
+                        val compressed = out.toByteArray()
+                        bestBytes = compressed
+                        if (compressed.size <= maxBytesBudget) {
+                            if (candidateBitmap !== orientedBitmap) candidateBitmap.recycle()
+                            break@outer
+                        }
+                    }
+                    if (candidateBitmap !== orientedBitmap) candidateBitmap.recycle()
+                }
+                orientedBitmap.recycle()
+
+                val finalBytes = bestBytes ?: bytes
+                val b64 = Base64.encodeToString(finalBytes, Base64.NO_WRAP)
+                Log.d(TAG, "Generated cloud image payload: ${finalBytes.size} raw bytes (${b64.length} base64 chars)")
                 "data:image/jpeg;base64,$b64"
             } else {
                 val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
@@ -283,6 +320,28 @@ object FirebaseStorageManager {
             Log.e(TAG, "Error generating cloud payload: ${e.message}", e)
             val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
             "data:$mimeType;base64,$b64"
+        }
+    }
+
+    private fun applyExifOrientation(bitmap: Bitmap, bytes: ByteArray): Bitmap {
+        return try {
+            val exif = ExifInterface(ByteArrayInputStream(bytes))
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            val matrix = Matrix()
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                else -> return bitmap
+            }
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        } catch (_: Exception) {
+            bitmap
         }
     }
 

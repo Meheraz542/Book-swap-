@@ -248,6 +248,26 @@ fun String?.sanitizeMediaUrl(): String? {
     }
 }
 
+fun String?.isCloudMediaUrl(): Boolean {
+    if (this.isNullOrBlank()) return false
+    return startsWith("https://", ignoreCase = true) ||
+        startsWith("http://", ignoreCase = true) ||
+        startsWith("data:image/", ignoreCase = true)
+}
+
+fun String?.toCoilCacheKey(): String? {
+    if (this.isNullOrBlank()) return null
+    return if (startsWith("data:image/", ignoreCase = true)) {
+        val head = substring(0, minOf(64, length)).hashCode()
+        val midStart = (length / 2 - 32).coerceAtLeast(0)
+        val mid = substring(midStart, minOf(midStart + 64, length)).hashCode()
+        val tail = substring((length - 64).coerceAtLeast(0)).hashCode()
+        "b64_${length}_${head}_${mid}_$tail"
+    } else {
+        substringBefore("?")
+    }
+}
+
 data class AppConfig(
     val isMaintenanceMode: Boolean = false,
     val maintenanceMessage: String = "The app is currently undergoing scheduled campus maintenance. Please check back shortly.",

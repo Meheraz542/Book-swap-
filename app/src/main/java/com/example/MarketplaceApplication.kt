@@ -14,15 +14,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class MarketplaceApplication : Application(), ImageLoaderFactory {
-    override fun onCreate() {
-        super.onCreate()
-        initFirebase()
-        val imageLoader = newImageLoader()
-        coil.Coil.setImageLoader(imageLoader)
-        MarketplaceRepository.initialize(this)
-    }
-
-    override fun newImageLoader(): ImageLoader {
+    private val singletonImageLoader: ImageLoader by lazy {
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -32,7 +24,7 @@ class MarketplaceApplication : Application(), ImageLoaderFactory {
             .followSslRedirects(true)
             .build()
 
-        return ImageLoader.Builder(this)
+        ImageLoader.Builder(this)
             .okHttpClient(okHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
@@ -50,12 +42,22 @@ class MarketplaceApplication : Application(), ImageLoaderFactory {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
             .components {
+                add(com.example.util.Base64DataUriFetcher.UriFactory())
                 add(com.example.util.Base64DataUriFetcher.Factory())
             }
             .crossfade(true)
             .respectCacheHeaders(false)
             .build()
     }
+
+    override fun onCreate() {
+        super.onCreate()
+        initFirebase()
+        coil.Coil.setImageLoader(this)
+        MarketplaceRepository.initialize(this)
+    }
+
+    override fun newImageLoader(): ImageLoader = singletonImageLoader
 
     private fun initFirebase() {
         try {

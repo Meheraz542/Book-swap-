@@ -78,7 +78,7 @@ fun MainApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(Unit) {
-        delay(600)
+        delay(250)
         isAppLoading = false
     }
 

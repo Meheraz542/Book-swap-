@@ -60,7 +60,7 @@ class FirebaseFirestoreManager(private val context: Context) {
     suspend fun saveUserProfile(user: UserProfile, passwordHash: String? = null) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
         try {
             val safeAvatarUri = user.profilePhotoUri?.takeIf {
-                it.startsWith("http://") || it.startsWith("https://")
+                it.isCloudMediaUrl()
             } ?: ""
 
             val userMap = hashMapOf<String, Any?>(
@@ -217,7 +217,7 @@ class FirebaseFirestoreManager(private val context: Context) {
                 )
             }
 
-            val validAvatar = set.sellerAvatarUri?.takeIf { it.startsWith("https://", ignoreCase = true) } ?: ""
+            val validAvatar = set.sellerAvatarUri?.takeIf { it.isCloudMediaUrl() } ?: ""
 
             val map = hashMapOf(
                 "id" to set.id,

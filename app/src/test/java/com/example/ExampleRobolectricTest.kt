@@ -8,6 +8,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import com.example.model.primaryCoverUrl
+import com.example.model.toCoilCacheKey
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -18,6 +19,27 @@ class ExampleRobolectricTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
     assertEquals("BookSwap", appName)
+  }
+
+  @Test
+  fun `verify coil image loader with data uri`() = kotlinx.coroutines.test.runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val imageLoader = coil.Coil.imageLoader(context)
+
+    // Create a 1x1 white PNG as Base64 data URI
+    val samplePngBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    val cacheKey = samplePngBase64.toCoilCacheKey()
+    val request = coil.request.ImageRequest.Builder(context)
+        .data(samplePngBase64)
+        .memoryCacheKey(cacheKey)
+        .diskCacheKey(cacheKey)
+        .build()
+
+    val result = imageLoader.execute(request)
+    if (result is coil.request.ErrorResult) {
+        result.throwable.printStackTrace()
+    }
+    org.junit.Assert.assertTrue("Expected SuccessResult but got $result", result is coil.request.SuccessResult)
   }
 
   @Test

@@ -47,8 +47,10 @@ import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.*
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.example.model.isCloudMediaUrl
 import com.example.model.primaryCoverUrl
 import com.example.model.sanitizeMediaUrl
+import com.example.model.toCoilCacheKey
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -145,7 +147,7 @@ fun SetDetailsScreen(
 
     // Clear optimistic photos once remote Firestore URLs have propagated
     LaunchedEffect(currentSet.imageUrls) {
-        if (currentSet.imageUrls.any { it.startsWith("http") }) {
+        if (currentSet.imageUrls.any { it.isCloudMediaUrl() }) {
             optimisticPhotos = emptyList()
         }
     }
@@ -388,8 +390,8 @@ fun SetDetailsScreen(
                         val sanitizedPhoto = activePhoto.sanitizeMediaUrl()
 
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (!sanitizedPhoto.isNullOrBlank() && (sanitizedPhoto.startsWith("https://", ignoreCase = true) || sanitizedPhoto.startsWith("data:image/", ignoreCase = true))) {
-                                val cacheKey = sanitizedPhoto.substringBefore("?")
+                            if (!sanitizedPhoto.isNullOrBlank() && sanitizedPhoto.isCloudMediaUrl()) {
+                                val cacheKey = sanitizedPhoto.toCoilCacheKey()
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedPhoto)
@@ -696,10 +698,11 @@ fun SetDetailsScreen(
                                         shadowElevation = if (isSelected) 6.dp else 2.dp
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize()) {
-                                            val thumbKey = photoUri.sanitizeMediaUrl()?.substringBefore("?")
+                                            val thumbUrl = photoUri.sanitizeMediaUrl()
+                                            val thumbKey = thumbUrl.toCoilCacheKey()
                                             SubcomposeAsyncImage(
                                                 model = ImageRequest.Builder(context)
-                                                    .data(photoUri.sanitizeMediaUrl())
+                                                    .data(thumbUrl)
                                                     .crossfade(true)
                                                     .diskCachePolicy(CachePolicy.ENABLED)
                                                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -1061,7 +1064,8 @@ fun SetDetailsScreen(
                             border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
                             shadowElevation = 2.dp
                         ) {
-                            if (!sanitizedBookPhoto.isNullOrBlank() && (sanitizedBookPhoto.startsWith("https://", ignoreCase = true) || sanitizedBookPhoto.startsWith("data:image/", ignoreCase = true))) {
+                            if (!sanitizedBookPhoto.isNullOrBlank() && sanitizedBookPhoto.isCloudMediaUrl()) {
+                                val bookPhotoKey = sanitizedBookPhoto.toCoilCacheKey()
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(sanitizedBookPhoto)
@@ -1069,6 +1073,8 @@ fun SetDetailsScreen(
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .networkCachePolicy(CachePolicy.ENABLED)
+                                        .memoryCacheKey(bookPhotoKey)
+                                        .diskCacheKey(bookPhotoKey)
                                         .build(),
                                     contentDescription = book.bookName,
                                     contentScale = ContentScale.Crop,
@@ -1414,13 +1420,17 @@ fun SetDetailsScreen(
                     var offsetX by remember(viewingPhotoFullscreen) { mutableFloatStateOf(0f) }
                     var offsetY by remember(viewingPhotoFullscreen) { mutableFloatStateOf(0f) }
 
+                    val fullPhotoUrl = viewingPhotoFullscreen.sanitizeMediaUrl()
+                    val fullPhotoKey = fullPhotoUrl.toCoilCacheKey()
                     SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)
-                            .data(viewingPhotoFullscreen.sanitizeMediaUrl())
+                            .data(fullPhotoUrl)
                             .crossfade(true)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .networkCachePolicy(CachePolicy.ENABLED)
+                            .memoryCacheKey(fullPhotoKey)
+                            .diskCacheKey(fullPhotoKey)
                             .build(),
                         contentDescription = "Full photo",
                         contentScale = ContentScale.Fit,
@@ -1598,10 +1608,11 @@ fun SetDetailsScreen(
                                 ),
                                 color = Color.DarkGray
                             ) {
-                                val previewKey = photoUri.sanitizeMediaUrl()?.substringBefore("?")
+                                val previewUrl = photoUri.sanitizeMediaUrl()
+                                val previewKey = previewUrl.toCoilCacheKey()
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data(photoUri.sanitizeMediaUrl())
+                                        .data(previewUrl)
                                         .crossfade(true)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)

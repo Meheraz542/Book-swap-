@@ -382,17 +382,25 @@ object MarketplaceRepository {
         return _userProfileCache[userId] ?: _allUsers.value.find { it.id == userId }
     }
 
-    fun initialize(context: Context) {
-        appContext = context.applicationContext
-        val db = AppDatabase.getInstance(context)
-        database = db
-        val firestore = FirebaseFirestoreManager(context)
-        firestoreManager = firestore
-        val auth = AuthManager(context, firestore)
-        authManager = auth
-        emailOtpManager = EmailOtpManager(context.applicationContext)
+    @Volatile
+    private var listenersStarted = false
 
-        // Attach persistent Firebase Auth State Listener to ensure user sessions remain active
+    fun initialize(context: Context) {
+        val appCtx = context.applicationContext
+        appContext = appCtx
+        val db = AppDatabase.getInstance(appCtx)
+        database = db
+        val firestore = firestoreManager ?: FirebaseFirestoreManager(appCtx).also { firestoreManager = it }
+        val auth = authManager ?: AuthManager(appCtx, firestore).also { authManager = it }
+        if (emailOtpManager == null) {
+            emailOtpManager = EmailOtpManager(appCtx)
+        }
+
+        if (listenersStarted) return
+        listenersStarted = true
+
+        scope.launch(Dispatchers.IO) {
+            // Attach persistent Firebase Auth State Listener off the Main Thread
         // across app restarts and consistently propagate authentication state to the repository layer.
         try {
             val firebaseAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
@@ -471,43 +479,45 @@ object MarketplaceRepository {
         try {
             // Public catalog listeners (allowed by firestore.rules)
             firestore.listenAllBookSets { firestoreSets ->
-                val currentSaved = _savedSetIds.value
-                val userMap = _allUsers.value.associateBy { it.id }
-                val validSets = firestoreSets.filterNot { 
-                    it.id.startsWith("demo") || it.id.startsWith("sample") || it.id == "set_civil_4th_1" || it.id.contains("mock") 
-                }
-                val mapped = validSets.map { set ->
-                    val seller = userMap[set.sellerId] ?: _userProfileCache[set.sellerId]
-                    val enriched = if (seller != null) {
-                        set.copy(
-                            sellerName = seller.name.ifBlank { set.sellerName },
-                            sellerCollege = seller.college.ifBlank { set.college },
-                            sellerTech = seller.technology.displayName,
-                            sellerSem = seller.currentSemester.displayName,
-                            sellerPhone = seller.phone.ifBlank { set.sellerPhone },
-                            sellerAvatarUri = seller.profilePhotoUri ?: set.sellerAvatarUri
-                        )
-                    } else set
-                    enriched.copy(isSaved = currentSaved.contains(set.id))
-                }
-                _bookSets.value = mapped
-                Log.d("MarketplaceRepo", "Synced ${validSets.size} valid bookSets from Firestore in real-time (demo data purged)")
-                database?.let { db ->
-                    scope.launch(Dispatchers.IO) {
-                        if (mapped.isNotEmpty()) {
-                            val activeRemoteIds = mapped.map { it.id }.toSet()
-                            val localExisting = db.bookSetDao().getAllBookSetsWithBooks()
-                            for (localItem in localExisting) {
-                                if (localItem.bookSet.id !in activeRemoteIds) {
-                                    db.bookSetDao().deleteBookSetById(localItem.bookSet.id)
+                scope.launch(Dispatchers.Default) {
+                    val currentSaved = _savedSetIds.value
+                    val userMap = _allUsers.value.associateBy { it.id }
+                    val validSets = firestoreSets.filterNot {
+                        it.id.startsWith("demo") || it.id.startsWith("sample") || it.id == "set_civil_4th_1" || it.id.contains("mock")
+                    }
+                    val mapped = validSets.map { set ->
+                        val seller = userMap[set.sellerId] ?: _userProfileCache[set.sellerId]
+                        val enriched = if (seller != null) {
+                            set.copy(
+                                sellerName = seller.name.ifBlank { set.sellerName },
+                                sellerCollege = seller.college.ifBlank { set.college },
+                                sellerTech = seller.technology.displayName,
+                                sellerSem = seller.currentSemester.displayName,
+                                sellerPhone = seller.phone.ifBlank { set.sellerPhone },
+                                sellerAvatarUri = seller.profilePhotoUri ?: set.sellerAvatarUri
+                            )
+                        } else set
+                        enriched.copy(isSaved = currentSaved.contains(set.id))
+                    }
+                    _bookSets.value = mapped
+                    Log.d("MarketplaceRepo", "Synced ${validSets.size} valid bookSets from Firestore in real-time (demo data purged)")
+                    database?.let { roomDb ->
+                        withContext(Dispatchers.IO) {
+                            if (mapped.isNotEmpty()) {
+                                val activeRemoteIds = mapped.map { it.id }.toSet()
+                                val localExisting = roomDb.bookSetDao().getAllBookSetsWithBooks()
+                                for (localItem in localExisting) {
+                                    if (localItem.bookSet.id !in activeRemoteIds) {
+                                        roomDb.bookSetDao().deleteBookSetById(localItem.bookSet.id)
+                                    }
                                 }
                             }
-                        }
-                        for (set in mapped) {
-                            db.bookSetDao().insertBookSetWithBooks(
-                                set.toEntity(),
-                                set.includedBooks.map { it.toEntity(set.id) }
-                            )
+                            for (set in mapped) {
+                                roomDb.bookSetDao().insertBookSetWithBooks(
+                                    set.toEntity(),
+                                    set.includedBooks.map { it.toEntity(set.id) }
+                                )
+                            }
                         }
                     }
                 }
@@ -718,6 +728,7 @@ object MarketplaceRepository {
         } catch (e: Exception) {
             Log.e("MarketplaceRepo", "Failed to start AppConfig listener", e)
         }
+        } // end background Firebase listener initialization
 
         scope.launch(Dispatchers.IO) {
             // Seed Super Admin if empty
@@ -949,6 +960,7 @@ object MarketplaceRepository {
 
         if (totalPhotos > 0) {
             val targetContext = context ?: throw IOException("Application context unavailable for image upload")
+            val perPhotoBudget = (600_000 / totalPhotos.coerceAtLeast(1)).coerceIn(45_000, 100_000)
             var currentPhotoIdx = 0
 
             uploadedCovers = imageUrls.filter { it.isNotBlank() }.mapIndexed { idx, url ->
@@ -959,7 +971,7 @@ object MarketplaceRepository {
                     onProgress?.invoke("Uploading cover photo ($currentPhotoIdx of $totalPhotos)...")
                     val sourceUri = if (url.startsWith("/")) android.net.Uri.fromFile(java.io.File(url)) else android.net.Uri.parse(url)
                     val cloudUrl = FirebaseStorageManager.uploadOriginalBookImage(
-                        targetContext, newId, idx, sourceUri
+                        targetContext, newId, idx, sourceUri, maxBytesBudget = perPhotoBudget
                     )
                     if (!cloudUrl.startsWith("https://", ignoreCase = true) && !cloudUrl.startsWith("data:image/", ignoreCase = true)) {
                         throw IOException("Strict Validation Failed: Returned non-cloud cover URL: $cloudUrl")
@@ -979,7 +991,7 @@ object MarketplaceRepository {
                         onProgress?.invoke("Uploading book ${bIdx + 1} photo ($currentPhotoIdx of $totalPhotos)...")
                         val sourceUri = if (u.startsWith("/")) android.net.Uri.fromFile(java.io.File(u)) else android.net.Uri.parse(u)
                         val cloudUrl = FirebaseStorageManager.uploadOriginalBookImage(
-                            targetContext, "${newId}_b$bIdx", imgIdx, sourceUri
+                            targetContext, "${newId}_b$bIdx", imgIdx, sourceUri, maxBytesBudget = perPhotoBudget
                         )
                         if (!cloudUrl.startsWith("https://", ignoreCase = true) && !cloudUrl.startsWith("data:image/", ignoreCase = true)) {
                             throw IOException("Strict Validation Failed: Returned non-cloud book image URL: $cloudUrl")
@@ -1701,13 +1713,17 @@ object MarketplaceRepository {
                 }
 
                 // Upload exact original photos to Firebase Storage and require valid cloud URLs
+                val totalAfterAdd = currentSet.imageUrls.size + newPhotoUris.size +
+                    currentSet.includedBooks.sumOf { it.imageUris.size }
+                val perPhotoBudget = (580_000 / totalAfterAdd.coerceAtLeast(1)).coerceIn(45_000, 100_000)
                 val uploadedUrls = newPhotoUris.mapIndexed { idx, uri ->
                     val photoIndex = currentSet.imageUrls.size + idx
                     val cloudUrl = FirebaseStorageManager.uploadOriginalBookImage(
                         context = context,
                         setId = setId,
                         photoIndex = photoIndex,
-                        sourceUri = uri
+                        sourceUri = uri,
+                        maxBytesBudget = perPhotoBudget
                     )
                     if (!cloudUrl.startsWith("https://", ignoreCase = true) && !cloudUrl.startsWith("data:image/", ignoreCase = true)) {
                         throw IOException("Strict Validation Failed: Returned non-cloud URL for additional photo: $cloudUrl")
@@ -1765,9 +1781,9 @@ object MarketplaceRepository {
 
         scope.launch {
             try {
-                // Upload to Firebase Cloud Storage and only persist verified HTTPS download URL
+                // Upload to Firebase Cloud Storage (or cloud payload fallback) and persist verified cloud URL
                 val downloadUrl = FirebaseStorageManager.uploadOriginalProfileImage(context, current.id, uri)
-                if (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://")) {
+                if (downloadUrl.isCloudMediaUrl()) {
                     updateProfilePhotoUri(downloadUrl)
                 } else {
                     throw IOException("Invalid profile photo URL from Storage: $downloadUrl")

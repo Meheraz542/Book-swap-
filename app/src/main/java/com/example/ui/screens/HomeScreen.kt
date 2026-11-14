@@ -1523,8 +1523,8 @@ fun BookSetCardHorizontal(
         ) {
             val coverUrl = set.primaryCoverUrl
 
-            if (!coverUrl.isNullOrBlank() && (coverUrl.startsWith("https://", ignoreCase = true) || coverUrl.startsWith("data:image/", ignoreCase = true))) {
-                val coverKey = coverUrl.substringBefore("?")
+            if (!coverUrl.isNullOrBlank() && coverUrl.isCloudMediaUrl()) {
+                val coverKey = coverUrl.toCoilCacheKey()
                 SubcomposeAsyncImage(
                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                         .data(coverUrl)
@@ -1746,7 +1746,8 @@ fun BookSetCardVertical(
             ) {
                 val coverUrl = set.primaryCoverUrl
 
-                if (!coverUrl.isNullOrBlank() && (coverUrl.startsWith("https://", ignoreCase = true) || coverUrl.startsWith("data:image/", ignoreCase = true))) {
+                if (!coverUrl.isNullOrBlank() && coverUrl.isCloudMediaUrl()) {
+                    val coverKey = coverUrl.toCoilCacheKey()
                     SubcomposeAsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                             .data(coverUrl)
@@ -1754,6 +1755,8 @@ fun BookSetCardVertical(
                             .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                             .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                             .networkCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .memoryCacheKey(coverKey)
+                            .diskCacheKey(coverKey)
                             .build(),
                         contentDescription = set.title,
                         contentScale = ContentScale.Crop,
@@ -1872,11 +1875,14 @@ fun BookSetCardVertical(
                         shape = CircleShape,
                         color = Color(0xFFE2E8F0)
                     ) {
-                        if (!sellerAvatarUri.isNullOrBlank() && (sellerAvatarUri.startsWith("https://", ignoreCase = true) || sellerAvatarUri.startsWith("data:image/", ignoreCase = true))) {
+                        if (!sellerAvatarUri.isNullOrBlank() && sellerAvatarUri.isCloudMediaUrl()) {
+                            val avatarKey = sellerAvatarUri.toCoilCacheKey()
                             SubcomposeAsyncImage(
                                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                     .data(sellerAvatarUri.sanitizeMediaUrl())
                                     .crossfade(true)
+                                    .memoryCacheKey(avatarKey)
+                                    .diskCacheKey(avatarKey)
                                     .build(),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
